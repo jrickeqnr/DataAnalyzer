@@ -15,7 +15,7 @@ Plot::Plot(const std::string& title)
     : title_(title) {
 }
 
-std::string Plot::getTitle() const {
+const std::string& Plot::getTitle() const {
     return title_;
 }
 
@@ -31,7 +31,9 @@ TimeSeries::TimeSeries(const std::string& title, const std::string& xLabel, cons
 bool TimeSeries::setData(const std::vector<Date>& dates,
                         const Eigen::VectorXd& actual,
                         const Eigen::VectorXd& predicted) {
-    if (dates.empty() || dates.size() != actual.size() || actual.size() != predicted.size()) {
+    if (dates.empty() || 
+        static_cast<Eigen::Index>(dates.size()) != actual.size() || 
+        actual.size() != predicted.size()) {
         return false;
     }
     
@@ -119,34 +121,6 @@ void TimeSeries::render() {
     ImGui::Text("MAPE: %.2f%%", mape);
 }
 
-bool TimeSeries::saveImage(const std::string& filepath) const {
-    // In a real implementation, this would save the plot as an image
-    // For now, we'll save the data as a CSV file
-    try {
-        std::filesystem::path path(filepath);
-        std::filesystem::create_directories(path.parent_path());
-        
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        // Write header
-        file << "Date,Actual,Predicted\n";
-        
-        // Write data
-        for (size_t i = 0; i < dates_.size(); ++i) {
-            file << dates_[i].toString() << ","
-                << actualValues_(i) << ","
-                << predictedValues_(i) << "\n";
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        return false;
-    }
-}
-
 std::vector<std::string> TimeSeries::getDateStrings() const {
     std::vector<std::string> result;
     result.reserve(dates_.size());
@@ -186,6 +160,10 @@ std::vector<std::string> TimeSeries::getDateStrings() const {
     }
     
     return result;
+}
+
+std::string TimeSeries::getType() const {
+    return "TimeSeries";
 }
 
 // ScatterPlot Implementation
@@ -256,29 +234,8 @@ void ScatterPlot::render() {
     ImGui::Text("RMSE: %.4f", rmse);
 }
 
-bool ScatterPlot::saveImage(const std::string& filepath) const {
-    try {
-        std::filesystem::path path(filepath);
-        std::filesystem::create_directories(path.parent_path());
-        
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        // Write header
-        file << "Actual,Predicted\n";
-        
-        // Write data
-        for (int i = 0; i < actualValues_.size(); ++i) {
-            file << actualValues_(i) << ","
-                << predictedValues_(i) << "\n";
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        return false;
-    }
+std::string ScatterPlot::getType() const {
+    return "ScatterPlot";
 }
 
 // FeatureImportancePlot Implementation
@@ -288,7 +245,7 @@ FeatureImportancePlot::FeatureImportancePlot(const std::string& title, const std
 
 bool FeatureImportancePlot::setData(const std::vector<std::string>& featureNames,
                                   const Eigen::VectorXd& importance) {
-    if (featureNames.size() != importance.size()) {
+    if (static_cast<Eigen::Index>(featureNames.size()) != importance.size()) {
         return false;
     }
     
@@ -334,29 +291,8 @@ void FeatureImportancePlot::render() {
     }
 }
 
-bool FeatureImportancePlot::saveImage(const std::string& filepath) const {
-    try {
-        std::filesystem::path path(filepath);
-        std::filesystem::create_directories(path.parent_path());
-        
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        // Write header
-        file << "Feature,Importance\n";
-        
-        // Write data
-        for (size_t i = 0; i < featureNames_.size(); ++i) {
-            file << featureNames_[i] << ","
-                << importanceValues_(i) << "\n";
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        return false;
-    }
+std::string FeatureImportancePlot::getType() const {
+    return "FeatureImportancePlot";
 }
 
 // PlotManager Implementation
@@ -410,6 +346,82 @@ std::shared_ptr<Plot> PlotManager::getPlot(size_t index) const {
         return plots_[index];
     }
     return nullptr;
+}
+
+bool PlotManager::exportPlotData(const std::string& directory) {
+    try {
+        // Create the directory if it doesn't exist
+        std::filesystem::create_directories(directory);
+        
+        // Export each plot's data to CSV
+        for (size_t i = 0; i < plots_.size(); ++i) {
+            std::string filename = directory + "/plot_" + plots_[i]->getType() + "_" + std::to_string(i) + ".csv";
+            std::ofstream file(filename);
+            
+            if (!file.is_open()) {
+                return false;
+            }
+            
+            // Write plot title and type
+            file << "Plot Type: " << plots_[i]->getType() << "\n";
+            file << "Plot Title: " << plots_[i]->getTitle() << "\n\n";
+            
+            // Export data based on plot type
+            if (auto* timeSeries = dynamic_cast<TimeSeries*>(plots_[i].get())) {
+                file << "Date,Actual Value,Predicted Value\n";
+                std::vector<std::string> dateStrings = timeSeries->getDateStrings();
+                Eigen::VectorXd actual = timeSeries->getActualValues();
+                Eigen::VectorXd predicted = timeSeries->getPredictedValues();
+                
+                for (Eigen::Index j = 0; j < actual.size(); ++j) {
+                    file << dateStrings[j] << "," << actual(j) << "," << predicted(j) << "\n";
+                }
+            }
+            else if (auto* scatterPlot = dynamic_cast<ScatterPlot*>(plots_[i].get())) {
+                file << "Actual Value,Predicted Value\n";
+                Eigen::VectorXd actual = scatterPlot->getActualValues();
+                Eigen::VectorXd predicted = scatterPlot->getPredictedValues();
+                
+                for (Eigen::Index j = 0; j < actual.size(); ++j) {
+                    file << actual(j) << "," << predicted(j) << "\n";
+                }
+            }
+            else if (auto* residualPlot = dynamic_cast<ResidualPlot*>(plots_[i].get())) {
+                file << "Predicted Value,Residual\n";
+                Eigen::VectorXd predicted = residualPlot->getPredictedValues();
+                Eigen::VectorXd residuals = residualPlot->getResidualValues();
+                
+                for (Eigen::Index j = 0; j < predicted.size(); ++j) {
+                    file << predicted(j) << "," << residuals(j) << "\n";
+                }
+            }
+            else if (auto* featurePlot = dynamic_cast<FeatureImportancePlot*>(plots_[i].get())) {
+                file << "Feature,Importance\n";
+                std::vector<std::string> featureNames = featurePlot->getFeatureNames();
+                Eigen::VectorXd importance = featurePlot->getImportanceValues();
+                
+                for (Eigen::Index j = 0; j < importance.size(); ++j) {
+                    file << featureNames[j] << "," << importance(j) << "\n";
+                }
+            }
+            else if (auto* coeffPlot = dynamic_cast<CoefficientStatsPlot*>(plots_[i].get())) {
+                file << "Feature,Coefficient,Standard Error,t-value\n";
+                std::vector<std::string> featureNames = coeffPlot->getFeatureNames();
+                Eigen::VectorXd coefficients = coeffPlot->getCoefficientValues();
+                Eigen::VectorXd standardErrors = coeffPlot->getStandardErrors();
+                Eigen::VectorXd tValues = coeffPlot->getTValues();
+                
+                for (Eigen::Index j = 0; j < coefficients.size(); ++j) {
+                    file << featureNames[j] << "," << coefficients(j) << "," 
+                         << standardErrors(j) << "," << tValues(j) << "\n";
+                }
+            }
+        }
+        
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 // ResidualPlot Implementation
@@ -471,29 +483,8 @@ void ResidualPlot::render() {
     ImGui::Text("Std Dev of Residuals: %.4f", stdResidual);
 }
 
-bool ResidualPlot::saveImage(const std::string& filepath) const {
-    try {
-        std::filesystem::path path(filepath);
-        std::filesystem::create_directories(path.parent_path());
-        
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        // Write header
-        file << "Predicted,Residual\n";
-        
-        // Write data
-        for (int i = 0; i < predictedValues_.size(); ++i) {
-            file << predictedValues_(i) << ","
-                 << residualValues_(i) << "\n";
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        return false;
-    }
+std::string ResidualPlot::getType() const {
+    return "ResidualPlot";
 }
 
 // CoefficientStatsPlot Implementation
@@ -506,9 +497,9 @@ bool CoefficientStatsPlot::setData(const std::vector<std::string>& featureNames,
                                   const Eigen::VectorXd& standardErrors,
                                   const Eigen::VectorXd& tValues) {
     if (featureNames.empty() || 
-        coefficients.size() != featureNames.size() ||
-        standardErrors.size() != featureNames.size() ||
-        tValues.size() != featureNames.size()) {
+        static_cast<Eigen::Index>(featureNames.size()) != coefficients.size() ||
+        static_cast<Eigen::Index>(featureNames.size()) != standardErrors.size() ||
+        static_cast<Eigen::Index>(featureNames.size()) != tValues.size()) {
         return false;
     }
     
@@ -610,31 +601,8 @@ void CoefficientStatsPlot::render() {
     }
 }
 
-bool CoefficientStatsPlot::saveImage(const std::string& filepath) const {
-    try {
-        std::filesystem::path path(filepath);
-        std::filesystem::create_directories(path.parent_path());
-        
-        std::ofstream file(filepath);
-        if (!file.is_open()) {
-            return false;
-        }
-        
-        // Write header
-        file << "Feature,Coefficient,StandardError,TValue\n";
-        
-        // Write data
-        for (size_t i = 0; i < featureNames_.size(); ++i) {
-            file << featureNames_[i] << ","
-                 << coefficientValues_(i) << ","
-                 << standardErrors_(i) << ","
-                 << tValues_(i) << "\n";
-        }
-        
-        return true;
-    } catch (const std::exception& e) {
-        return false;
-    }
+std::string CoefficientStatsPlot::getType() const {
+    return "CoefficientStatsPlot";
 }
 
 } // namespace DataAnalyzer 

@@ -99,82 +99,39 @@ void GUI::renderOutlierDetection() {
     }
     
     // Show results if detection has been performed
-    if (detectPressed) {
+    if (!outliers_.empty()) {
+        ImGui::Text("Outliers detected in the following columns:");
         ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Text("Outlier Detection Results:");
         
-        int totalOutliers = 0;
+        const std::vector<std::string>& columnNames = dataHandler_.getColumnNames();
+        
         for (const auto& [col, rows] : outliers_) {
-            totalOutliers += rows.size();
+            if (col < columnNames.size()) {
+                ImGui::Text("Column '%s': %zu outliers", columnNames[col].c_str(), rows.size());
+                
+                if (ImGui::TreeNode(("Details##" + std::to_string(col)).c_str())) {
+                    ImGui::Indent(20.0f);
+                    ImGui::Text("Row indices: ");
+                    std::string indices;
+                    for (size_t i = 0; i < rows.size(); ++i) {
+                        indices += std::to_string(rows[i]);
+                        if (i < rows.size() - 1) indices += ", ";
+                    }
+                    ImGui::TextWrapped("%s", indices.c_str());
+                    ImGui::Unindent(20.0f);
+                    ImGui::TreePop();
+                }
+            }
         }
         
-        if (totalOutliers == 0) {
-            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "No outliers detected in the data!");
-        } else {
-            ImGui::Text("Total outliers found: %d", totalOutliers);
-            
-            // Display outliers by column
-            std::vector<std::string> columnNames = dataHandler_.getColumnNames();
-            std::vector<size_t> numericIndices = dataHandler_.getNumericColumnIndices();
-            
-            if (ImGui::BeginTable("OutliersTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                ImGui::TableSetupColumn("Column");
-                ImGui::TableSetupColumn("# Outliers");
-                ImGui::TableSetupColumn("Example Rows");
-                ImGui::TableHeadersRow();
-                
-                for (const auto& [col, rows] : outliers_) {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    
-                    // Find the column name
-                    std::string colName = "Unknown";
-                    if (col < numericIndices.size()) {
-                        size_t colIdx = numericIndices[col];
-                        if (colIdx < columnNames.size()) {
-                            colName = columnNames[colIdx];
-                        }
-                    }
-                    
-                    ImGui::Text("%s", colName.c_str());
-                    
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%zu", rows.size());
-                    
-                    ImGui::TableSetColumnIndex(2);
-                    // Show a few example row indices
-                    std::string rowsStr;
-                    for (size_t i = 0; i < std::min(rows.size(), size_t(5)); ++i) {
-                        rowsStr += std::to_string(rows[i]);
-                        if (i < std::min(rows.size(), size_t(5)) - 1) {
-                            rowsStr += ", ";
-                        }
-                    }
-                    if (rows.size() > 5) {
-                        rowsStr += "...";
-                    }
-                    ImGui::Text("%s", rowsStr.c_str());
-                }
-                
-                ImGui::EndTable();
-            }
-            
-            ImGui::Spacing();
-            if (ImGui::Button("Fix Outliers", ImVec2(120, 0))) {
-                // Fix outliers by interpolating with previous/next values
-                if (dataHandler_.fixOutliers(outliers_)) {
-                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Outliers fixed successfully!");
-                    detectPressed = false; // Reset detection state
-                } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error fixing outliers!");
-                }
-            }
-            
-            ImGui::SameLine();
-            if (ImGui::Button("Skip (Keep Outliers)", ImVec2(200, 0))) {
-                // Keep outliers and proceed to the next screen
-                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Keeping outliers in the data.");
+        ImGui::Spacing();
+        if (ImGui::Button("Fix Outliers", ImVec2(150, 0))) {
+            if (dataHandler_.fixOutliers(outliers_)) {
+                showSuccessPopup("Outliers fixed successfully!");
+                outliers_.clear();
+                detectPressed = false;
+            } else {
+                showErrorPopup("Failed to fix outliers!");
             }
         }
     }
@@ -308,9 +265,7 @@ void GUI::renderVariableSelection() {
     // Initialize selected features if empty
     if (selectedFeatures_.empty() && !modelVariables.empty()) {
         // Default: select all valid model variables except the last one
-        for (size_t i = 0; i < modelVariables.size() - 1; ++i) {
-            selectedFeatures_.push_back(modelVariables[i]);
-        }
+        selectedFeatures_ = std::vector<size_t>(modelVariables.begin(), modelVariables.end() - 1);
         
         // Default target: last valid model variable
         if (!modelVariables.empty()) {
@@ -1092,38 +1047,40 @@ void GUI::renderPlotting() {
     
     ImGui::Separator();
 
-    // Create plots if they don't exist
+    // Initialize plot manager if needed
     if (!plotManager_) {
         plotManager_ = std::make_shared<PlotManager>();
-        
-        // Add time series plot
+    }
+
+    // Reset plot manager to clear previous plots
+    plotManager_->reset();
+    
+    // Add time series plot
+    if (model_ && !predictions_.isZero()) {
         auto timeSeriesPlot = std::make_shared<TimeSeries>(
-            "Time Series: Actual vs Predicted Values Over Time",
-            "Date",
-            "Value"
+            "Model Predictions Over Time",
+            "Time",
+            "Values"
         );
-        std::vector<Date> dates = dataHandler_.getDates();
-        Eigen::VectorXd actual = dataHandler_.getTargetValues();
-        timeSeriesPlot->setData(dates, actual, predictions_);
+        timeSeriesPlot->setData(dataHandler_.getDates(), dataHandler_.getTargetValues(), predictions_);
         plotManager_->addPlot(timeSeriesPlot);
         
         // Add scatter plot
         auto scatterPlot = std::make_shared<ScatterPlot>(
-            "Scatter Plot: Actual vs Predicted Values",
+            "Actual vs Predicted Values",
             "Actual Values",
-            "Model Predictions"
+            "Predicted Values"
         );
-        scatterPlot->setData(actual, predictions_);
+        scatterPlot->setData(dataHandler_.getTargetValues(), predictions_);
         plotManager_->addPlot(scatterPlot);
         
         // Add residual plot
-        Eigen::VectorXd residuals = actual - predictions_;
         auto residualPlot = std::make_shared<ResidualPlot>(
-            "Residual Analysis: Model Error Distribution",
+            "Residual Analysis",
             "Predicted Values",
-            "Residuals (Actual - Predicted)"
+            "Residuals"
         );
-        residualPlot->setData(predictions_, residuals);
+        residualPlot->setData(predictions_, dataHandler_.getTargetValues() - predictions_);
         plotManager_->addPlot(residualPlot);
         
         // Add coefficient statistics plot for linear models
@@ -1179,19 +1136,6 @@ void GUI::renderPlotting() {
     // Render plots
     plotManager_->render();
 
-    // Export options
-    ImGui::Separator();
-    ImGui::Text("Export Results:");
-    
-    if (ImGui::Button("Export Data")) {
-        ImGuiFileDialog::fileDialog(exportDir_, "Select Export Directory", ".*", true);
-    }
-    
-    if (!exportDir_.empty()) {
-        exportResults(exportDir_);
-        exportDir_.clear();
-    }
-    
     // Navigation buttons
     ImGui::Separator();
     if (ImGui::Button("Back to Hyperparameters")) {
@@ -1207,7 +1151,7 @@ void GUI::renderPlotting() {
         selectedTargetIndices_.clear();
         includeSeasonality_ = false;
         model_.reset();
-        plotManager_.reset();
+        plotManager_->reset();
         predictions_ = Eigen::VectorXd();
         setScreen(Screen::FILE_BROWSER);
     }

@@ -68,6 +68,22 @@ public:
     virtual Eigen::VectorXd getFeatureImportance() const {
         throw std::runtime_error("Feature importance not supported by this model");
     }
+
+    // Helper functions to get specific statistics
+    double getRMSE() const {
+        auto stats = getStats();
+        return stats["RMSE"];
+    }
+    
+    double getR2() const {
+        auto stats = getStats();
+        return stats["R²"];
+    }
+    
+    double getMAE() const {
+        auto stats = getStats();
+        return stats["MAE"];
+    }
 };
 
 /**

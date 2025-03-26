@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <Eigen/Dense>
+#include <GLFW/glfw3.h>
 #include "data_handler.h"
 #include "model.h"
 #include "plotting.h"
@@ -23,11 +25,22 @@ namespace ImGuiFileDialog {
  */
 enum class Screen {
     FILE_BROWSER,      // Screen 1: File browser to load CSV
-    OUTLIER_DETECTION, // Screen 2: Detect outliers
-    MODEL_SELECTION,   // Screen 3: Model selection
-    VARIABLE_SELECTION, // Screen 4: Variable selection
-    HYPERPARAMETERS,   // Screen 5: Hyperparameter input
-    PLOTTING           // Screen 6: Plot window
+    DATA_VIEWER,       // Screen 2: Data viewer
+    MODEL_TRAINING,    // Screen 3: Model training
+    PREDICTIONS,       // Screen 4: Predictions
+    OUTLIER_DETECTION, // Screen 5: Detect outliers
+    MODEL_SELECTION,   // Screen 6: Model selection
+    VARIABLE_SELECTION,// Screen 7: Variable selection
+    HYPERPARAMETERS,   // Screen 8: Hyperparameter input
+    PLOTTING          // Screen 9: Plot window
+};
+
+enum class ExportType {
+    PREDICTIONS,
+    MODEL_STRUCTURE,
+    MODEL_RESULTS,
+    PLOT_DATA,
+    ALL
 };
 
 /**
@@ -70,13 +83,13 @@ private:
     
     // Data and model
     DataHandler dataHandler_;
-    std::shared_ptr<Model> model_;
+    std::unique_ptr<Model> model_;
     std::shared_ptr<PlotManager> plotManager_;
     
     // State variables for each screen
     std::string selectedFilePath_;
     std::map<size_t, std::vector<size_t>> outliers_;
-    size_t selectedModelIndex_ = 0;
+    int selectedModelIndex_ = 0;
     std::vector<size_t> selectedFeatures_;
     std::vector<size_t> selectedTargetIndices_;
     bool includeSeasonality_ = false;
@@ -119,10 +132,13 @@ private:
     
     // Helper methods
     void renderMainMenu();
-    void exportResults(const std::string& dirPath) const;
+    void exportResults(const std::string& directory, ExportType type);
     
     // ImGui style setup
     void setupImGuiStyle();
+
+    void showErrorPopup(const std::string& message);
+    void showSuccessPopup(const std::string& message);
 };
 
 } // namespace DataAnalyzer 

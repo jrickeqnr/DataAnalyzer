@@ -1,0 +1,62 @@
+Model Performance Metrics:
+Average Leaf Nodes: 1
+Average Tree Depth: 0
+Learning Rate: 0.01
+MAE: 4.48733
+MSE: 29.1376
+Max Tree Depth: 3
+Min Samples Split: 2
+Number of Trees: 50
+RMSE: 5.39792
+R²: -0.0128405
+Training Loss: 29.1376
+Tree_0_Leaf_Count: 1
+Tree_10_Leaf_Count: 1
+Tree_11_Leaf_Count: 1
+Tree_12_Leaf_Count: 1
+Tree_13_Leaf_Count: 1
+Tree_14_Leaf_Count: 1
+Tree_15_Leaf_Count: 1
+Tree_16_Leaf_Count: 1
+Tree_17_Leaf_Count: 1
+Tree_18_Leaf_Count: 1
+Tree_19_Leaf_Count: 1
+Tree_1_Leaf_Count: 1
+Tree_20_Leaf_Count: 1
+Tree_21_Leaf_Count: 1
+Tree_22_Leaf_Count: 1
+Tree_23_Leaf_Count: 1
+Tree_24_Leaf_Count: 1
+Tree_25_Leaf_Count: 1
+Tree_26_Leaf_Count: 1
+Tree_27_Leaf_Count: 1
+Tree_28_Leaf_Count: 1
+Tree_29_Leaf_Count: 1
+Tree_2_Leaf_Count: 1
+Tree_30_Leaf_Count: 1
+Tree_31_Leaf_Count: 1
+Tree_32_Leaf_Count: 1
+Tree_33_Leaf_Count: 1
+Tree_34_Leaf_Count: 1
+Tree_35_Leaf_Count: 1
+Tree_36_Leaf_Count: 1
+Tree_37_Leaf_Count: 1
+Tree_38_Leaf_Count: 1
+Tree_39_Leaf_Count: 1
+Tree_3_Leaf_Count: 1
+Tree_40_Leaf_Count: 1
+Tree_41_Leaf_Count: 1
+Tree_42_Leaf_Count: 1
+Tree_43_Leaf_Count: 1
+Tree_44_Leaf_Count: 1
+Tree_45_Leaf_Count: 1
+Tree_46_Leaf_Count: 1
+Tree_47_Leaf_Count: 1
+Tree_48_Leaf_Count: 1
+Tree_49_Leaf_Count: 1
+Tree_4_Leaf_Count: 1
+Tree_5_Leaf_Count: 1
+Tree_6_Leaf_Count: 1
+Tree_7_Leaf_Count: 1
+Tree_8_Leaf_Count: 1
+Tree_9_Leaf_Count: 1

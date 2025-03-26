@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include "data_handler.h"
+#include <implot.h>
 
 namespace DataAnalyzer {
 
@@ -13,7 +14,7 @@ namespace DataAnalyzer {
  */
 class Plot {
 public:
-    Plot(const std::string& title = "Plot");
+    explicit Plot(const std::string& title);
     virtual ~Plot() = default;
     
     /**
@@ -25,20 +26,15 @@ public:
      * @brief Get the plot title
      * @return std::string The plot title
      */
-    std::string getTitle() const;
+    const std::string& getTitle() const;
     
     /**
      * @brief Set the plot title
      * @param title The new title
      */
     void setTitle(const std::string& title);
-    
-    /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    virtual bool saveImage(const std::string& filepath) const = 0;
+
+    virtual std::string getType() const = 0;
 
 protected:
     std::string title_;
@@ -78,17 +74,17 @@ public:
     void render() override;
     
     /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    bool saveImage(const std::string& filepath) const override;
-    
-    /**
      * @brief Get the string representations of dates for the x-axis
      * @return std::vector<std::string> String representations of dates
      */
     std::vector<std::string> getDateStrings() const;
+
+    std::string getType() const override;
+
+    // Getters for data access
+    const std::vector<Date>& getDates() const { return dates_; }
+    const Eigen::VectorXd& getActualValues() const { return actualValues_; }
+    const Eigen::VectorXd& getPredictedValues() const { return predictedValues_; }
 
 private:
     std::string xLabel_;
@@ -129,13 +125,12 @@ public:
      * @brief Render the plot
      */
     void render() override;
-    
-    /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    bool saveImage(const std::string& filepath) const override;
+
+    std::string getType() const override;
+
+    // Getters for data access
+    const Eigen::VectorXd& getActualValues() const { return actualValues_; }
+    const Eigen::VectorXd& getPredictedValues() const { return predictedValues_; }
 
 private:
     std::string xLabel_;
@@ -175,13 +170,12 @@ public:
      * @brief Render the plot
      */
     void render() override;
-    
-    /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    bool saveImage(const std::string& filepath) const override;
+
+    std::string getType() const override;
+
+    // Getters for data access
+    const std::vector<std::string>& getFeatureNames() const { return featureNames_; }
+    const Eigen::VectorXd& getImportanceValues() const { return importanceValues_; }
 
 private:
     std::string xLabel_;
@@ -196,6 +190,9 @@ private:
  */
 class PlotManager {
 public:
+    PlotManager() = default;
+    ~PlotManager() = default;
+    
     /**
      * @brief Add a plot to the manager
      * @param plot The plot to add
@@ -231,6 +228,10 @@ public:
      * @return std::shared_ptr<Plot> The plot at the given index, or nullptr if invalid
      */
     std::shared_ptr<Plot> getPlot(size_t index) const;
+
+    bool exportPlotData(const std::string& directory);
+    const std::vector<std::shared_ptr<Plot>>& getPlots() const { return plots_; }
+    void reset() { plots_.clear(); }
 
 private:
     std::vector<std::shared_ptr<Plot>> plots_;
@@ -278,13 +279,12 @@ public:
      * @brief Render the plot
      */
     void render() override;
-    
-    /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    bool saveImage(const std::string& filepath) const override;
+
+    std::string getType() const override;
+
+    // Getters for data access
+    const Eigen::VectorXd& getPredictedValues() const { return predictedValues_; }
+    const Eigen::VectorXd& getResidualValues() const { return residualValues_; }
 
 private:
     std::string xLabel_;
@@ -328,13 +328,14 @@ public:
      * @brief Render the plot
      */
     void render() override;
-    
-    /**
-     * @brief Save the plot as an image
-     * @param filepath Path to save the image
-     * @return bool True if saving was successful
-     */
-    bool saveImage(const std::string& filepath) const override;
+
+    std::string getType() const override;
+
+    // Getters for data access
+    const std::vector<std::string>& getFeatureNames() const { return featureNames_; }
+    const Eigen::VectorXd& getCoefficientValues() const { return coefficientValues_; }
+    const Eigen::VectorXd& getStandardErrors() const { return standardErrors_; }
+    const Eigen::VectorXd& getTValues() const { return tValues_; }
 
 private:
     std::string xLabel_;

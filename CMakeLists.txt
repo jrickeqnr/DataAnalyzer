@@ -45,6 +45,7 @@ target_include_directories(DataAnalyzer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/implot
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/glfw/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/glfw/deps
     ${CMAKE_CURRENT_SOURCE_DIR}/lib/fast-cpp-csv-parser
 )
 

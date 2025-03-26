@@ -12,6 +12,11 @@
 #include <string>
 #include <vector>
 #include <map>
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
+#include <GL/gl.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -27,6 +32,8 @@ namespace ImGuiFileDialog {
     bool fileDialog(std::string& selectedPath, const std::string& title, const std::string& filter, bool onlyDirectories) {
         static std::string currentPath = fs::current_path().string();
         static std::string selectedFile;
+        static std::string newFolderName;
+        static bool showNewFolderInput = false;
         
         bool selected = false;
         
@@ -35,7 +42,7 @@ namespace ImGuiFileDialog {
             ImGui::Text("Current Directory: %s", currentPath.c_str());
             ImGui::Separator();
             
-            // Parent directory button
+            // Navigation buttons
             if (ImGui::Button("..")) {
                 fs::path parentPath = fs::path(currentPath).parent_path();
                 if (parentPath != currentPath) {
@@ -46,7 +53,6 @@ namespace ImGuiFileDialog {
             
             ImGui::SameLine();
             
-            // Home directory button
             if (ImGui::Button("Home")) {
                 currentPath = fs::path(getenv("HOME")).string();
                 selectedFile.clear();
@@ -54,12 +60,57 @@ namespace ImGuiFileDialog {
             
             ImGui::SameLine();
             
-            // Refresh button
             if (ImGui::Button("Refresh")) {
                 selectedFile.clear();
             }
             
+            ImGui::SameLine();
+            
+            if (ImGui::Button("New Folder")) {
+                showNewFolderInput = true;
+                newFolderName.clear();
+            }
+            
             ImGui::Separator();
+            
+            // New folder input
+            if (showNewFolderInput) {
+                ImGui::Text("New Folder Name:");
+                static char buffer[256] = {0};
+                bool createFolder = false;
+                
+                // Update newFolderName whenever text changes, not just on Enter
+                if (ImGui::InputText("##newFolder", buffer, sizeof(buffer), ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    createFolder = true;
+                }
+                // Always update newFolderName with current buffer contents
+                newFolderName = buffer;
+                
+                ImGui::SameLine();
+                if (ImGui::Button("Create")) {
+                    createFolder = true;
+                }
+                
+                if (createFolder && !newFolderName.empty()) {
+                    try {
+                        fs::path newFolderPath = fs::path(currentPath) / newFolderName;
+                        if (fs::create_directory(newFolderPath)) {
+                            showNewFolderInput = false;
+                            newFolderName.clear();
+                            memset(buffer, 0, sizeof(buffer));
+                        }
+                    } catch (const std::exception& e) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error creating folder: %s", e.what());
+                    }
+                }
+                
+                if (ImGui::Button("Cancel")) {
+                    showNewFolderInput = false;
+                    newFolderName.clear();
+                    memset(buffer, 0, sizeof(buffer));
+                }
+                ImGui::Separator();
+            }
             
             // Display directories and files
             std::error_code ec;
@@ -99,6 +150,7 @@ namespace ImGuiFileDialog {
                             if (onlyDirectories) {
                                 selectedFile = dirName;
                                 selectedPath = (fs::path(currentPath) / dirName).string();
+                                currentPath = selectedPath;  // Update current path when directory is selected
                             } else {
                                 selectedFile.clear();
                                 currentPath = (fs::path(currentPath) / dirName).string();
@@ -123,7 +175,7 @@ namespace ImGuiFileDialog {
                 ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error: %s", e.what());
             }
             
-            // Selected file display
+            // Selected file/directory display
             ImGui::Text("Selected: %s", selectedFile.c_str());
             
             // OK button
@@ -148,12 +200,12 @@ namespace ImGuiFileDialog {
         
         return selected;
     }
-}
+} // namespace ImGuiFileDialog
 
 // GUI Implementation
 GUI::GUI(const std::string& title, int width, int height)
     : title_(title), width_(width), height_(height), window_(nullptr),
-      currentScreen_(Screen::FILE_BROWSER) {
+      currentScreen_(Screen::FILE_BROWSER), plotManager_(std::make_shared<PlotManager>()) {
 }
 
 GUI::~GUI() {
@@ -259,6 +311,18 @@ void GUI::run() {
             case Screen::PLOTTING:
                 renderPlotting();
                 break;
+            case Screen::DATA_VIEWER:
+                // TODO: Implement data viewer screen
+                ImGui::Text("Data Viewer screen not yet implemented");
+                break;
+            case Screen::MODEL_TRAINING:
+                // TODO: Implement model training screen
+                ImGui::Text("Model Training screen not yet implemented");
+                break;
+            case Screen::PREDICTIONS:
+                // TODO: Implement predictions screen
+                ImGui::Text("Predictions screen not yet implemented");
+                break;
         }
         
         ImGui::End();
@@ -349,6 +413,12 @@ void GUI::setupImGuiStyle() {
 }
 
 void GUI::renderMainMenu() {
+    // Static variables for export dialog
+    static std::string exportDir;
+    static ExportType exportType;
+    static bool showFileDialog = false;
+    static std::string dialogTitle;
+
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Home", "Ctrl+H")) {
@@ -364,24 +434,41 @@ void GUI::renderMainMenu() {
                 selectedTargetIndices_.clear();
                 includeSeasonality_ = false;
                 model_.reset();
-                plotManager_.reset();
+                plotManager_->reset();
                 predictions_ = Eigen::VectorXd();
                 setScreen(Screen::FILE_BROWSER);
             }
             
-            if (ImGui::MenuItem("Export Results", "Ctrl+S", false, model_ != nullptr)) {
-                // Show a file dialog to select a directory
-                static std::string exportDir;
-                static bool showExportDialog = false;
-                
-                showExportDialog = true;
-                
-                if (showExportDialog) {
-                    if (ImGuiFileDialog::fileDialog(exportDir, "Select Export Directory", "", true)) {
-                        showExportDialog = false;
-                        exportResults(exportDir);
-                    }
+            ImGui::Separator();
+            
+            if (ImGui::BeginMenu("Export", model_ != nullptr)) {
+                if (ImGui::MenuItem("Predicted values (csv)")) {
+                    dialogTitle = "Select Export Directory for Predictions";
+                    exportType = ExportType::PREDICTIONS;
+                    showFileDialog = true;
                 }
+                if (ImGui::MenuItem("Model structure (txt)")) {
+                    dialogTitle = "Select Export Directory for Model Structure";
+                    exportType = ExportType::MODEL_STRUCTURE;
+                    showFileDialog = true;
+                }
+                if (ImGui::MenuItem("Model results (txt)")) {
+                    dialogTitle = "Select Export Directory for Results";
+                    exportType = ExportType::MODEL_RESULTS;
+                    showFileDialog = true;
+                }
+                if (ImGui::MenuItem("Plot data (csv)")) {
+                    dialogTitle = "Select Export Directory for Plots";
+                    exportType = ExportType::PLOT_DATA;
+                    showFileDialog = true;
+                }
+                if (ImGui::MenuItem("All")) {
+                    dialogTitle = "Select Export Directory for All Data";
+                    exportType = ExportType::ALL;
+                    showFileDialog = true;
+                }
+                
+                ImGui::EndMenu();
             }
             
             ImGui::Separator();
@@ -444,6 +531,18 @@ void GUI::renderMainMenu() {
         ImGui::EndMenuBar();
     }
     
+    // Show file dialog if requested (outside of menu)
+    if (showFileDialog) {
+        if (ImGuiFileDialog::fileDialog(exportDir, dialogTitle, ".", true)) {
+            // Dialog was closed with OK
+            if (!exportDir.empty()) {
+                exportResults(exportDir, exportType);
+                exportDir.clear();
+            }
+            showFileDialog = false;
+        }
+    }
+    
     // About dialog
     if (ImGui::BeginPopupModal("About DataAnalyzer", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("DataAnalyzer v1.0");
@@ -464,56 +563,163 @@ void GUI::renderMainMenu() {
     }
 }
 
-void GUI::exportResults(const std::string& dirPath) const {
-    if (!model_ || dirPath.empty()) {
+void GUI::exportResults(const std::string& directory, ExportType type) {
+    if (!model_) {
+        showErrorPopup("No model available to export results.");
         return;
     }
-    
-    // Create directory
-    fs::create_directories(dirPath);
-    
-    // Export predictions as CSV
-    if (plotManager_) {
-        // Export each plot's data
-        for (size_t i = 0; i < plotManager_->getPlotCount(); ++i) {
-            auto plot = plotManager_->getPlot(i);
-            if (plot) {
-                std::string filename = dirPath + "/plot_" + std::to_string(i) + ".csv";
-                plot->saveImage(filename);
-                std::cout << "Exported plot " << i << " to " << filename << std::endl;
+
+    if (directory.empty()) {
+        showErrorPopup("Invalid export directory.");
+        return;
+    }
+
+    // Create the export directory if it doesn't exist
+    std::filesystem::create_directories(directory);
+
+    // Helper function to create subdirectory
+    auto createSubDir = [](const std::string& baseDir, const std::string& subDir) {
+        std::string path = baseDir + "/" + subDir;
+        std::filesystem::create_directories(path);
+        return path;
+    };
+
+    try {
+        // Export predicted values
+        if (type == ExportType::PREDICTIONS || type == ExportType::ALL) {
+            std::string predDir = createSubDir(directory, "predictions");
+            std::ofstream predFile(predDir + "/predictions.csv");
+            
+            // Get date column name and values
+            std::string dateColumnName = "Date";
+            std::vector<Date> dates = dataHandler_.getDates();
+            std::vector<size_t> dateIndices = dataHandler_.getDateColumnIndices();
+            if (!dateIndices.empty()) {
+                dateColumnName = dataHandler_.getColumnNames()[dateIndices[0]];
+            }
+            
+            // Write header
+            predFile << dateColumnName << ",Predicted Value\n";
+            
+            // Write data
+            for (Eigen::Index i = 0; i < predictions_.size(); ++i) {
+                std::string dateStr = i < static_cast<Eigen::Index>(dates.size()) ? dates[i].toString() : "";
+                predFile << dateStr << "," << predictions_[i] << "\n";
             }
         }
-    }
-    
-    // Export model stats as TXT
-    std::ofstream statsFile(dirPath + "/model_stats.txt");
-    if (statsFile.is_open()) {
-        statsFile << "Model Statistics\n";
-        statsFile << "================\n\n";
-        
-        // Write model type
-        const char* modelTypes[] = {"Linear Regression", "Elastic Net", "XGBoost", "Gradient Boosting", "Neural Network"};
-        statsFile << "Model Type: " << modelTypes[selectedModelIndex_] << "\n\n";
-        
-        // Write hyperparameters
-        statsFile << "Hyperparameters:\n";
-        statsFile << "----------------\n";
-        auto hyperparams = model_->getHyperparameters();
-        for (const auto& [name, value] : hyperparams) {
-            statsFile << name << ": " << value << "\n";
+
+        // Export model structure
+        if (type == ExportType::MODEL_STRUCTURE || type == ExportType::ALL) {
+            std::string modelDir = createSubDir(directory, "model");
+            std::ofstream structureFile(modelDir + "/structure.txt");
+            structureFile << "Model Structure:\n";
+            structureFile << model_->getDescription() << "\n\n";
+            structureFile << "Hyperparameters:\n";
+            auto hyperparams = model_->getHyperparameters();
+            for (const auto& [name, value] : hyperparams) {
+                structureFile << name << ": " << value << "\n";
+            }
+
+            // Add coefficients for linear regression models
+            if (auto* linearModel = dynamic_cast<LinearRegression*>(model_.get())) {
+                structureFile << "\nModel Coefficients:\n";
+                Eigen::VectorXd coefficients = linearModel->getCoefficients();
+                auto stats = linearModel->getStats();
+                
+                // Write intercept
+                structureFile << "Intercept: " << stats["Intercept"] << "\n";
+                if (stats.find("Intercept SE") != stats.end()) {
+                    structureFile << "Intercept SE: " << stats["Intercept SE"] << "\n";
+                }
+                if (stats.find("Intercept t-value") != stats.end()) {
+                    structureFile << "Intercept t-value: " << stats["Intercept t-value"] << "\n";
+                }
+                
+                // Write feature coefficients
+                const std::vector<std::string>& featureNames = dataHandler_.getFeatureNames();
+                for (Eigen::Index i = 0; i < coefficients.size(); ++i) {
+                    std::string featureName = i < static_cast<Eigen::Index>(featureNames.size()) ? 
+                                            featureNames[i] : "Feature_" + std::to_string(i);
+                    structureFile << featureName << ": " << coefficients(i) << "\n";
+                    
+                    // Write standard error and t-value if available
+                    std::string se_key = "SE_" + std::to_string(i);
+                    std::string t_key = "t_value_" + std::to_string(i);
+                    if (stats.find(se_key) != stats.end()) {
+                        structureFile << featureName << " SE: " << stats[se_key] << "\n";
+                    }
+                    if (stats.find(t_key) != stats.end()) {
+                        structureFile << featureName << " t-value: " << stats[t_key] << "\n";
+                    }
+                }
+            }
         }
-        statsFile << "\n";
-        
-        // Write model statistics
-        statsFile << "Model Statistics:\n";
-        statsFile << "----------------\n";
-        auto stats = model_->getStats();
-        for (const auto& [name, value] : stats) {
-            statsFile << name << ": " << value << "\n";
+
+        // Export model results
+        if (type == ExportType::MODEL_RESULTS || type == ExportType::ALL) {
+            std::string resultsDir = createSubDir(directory, "results");
+            std::ofstream resultsFile(resultsDir + "/metrics.txt");
+            resultsFile << "Model Performance Metrics:\n";
+            auto stats = model_->getStats();
+            for (const auto& [name, value] : stats) {
+                resultsFile << name << ": " << value << "\n";
+            }
         }
-        
-        statsFile.close();
-        std::cout << "Exported model statistics to " << dirPath << "/model_stats.txt" << std::endl;
+
+        // Export plot data
+        if (type == ExportType::PLOT_DATA || type == ExportType::ALL) {
+            std::string plotDataDir = createSubDir(directory, "plot_data");
+            if (!plotManager_->exportPlotData(plotDataDir)) {
+                throw std::runtime_error("Failed to export plot data");
+            }
+        }
+
+        // Show success dialog
+        std::string message = "Successfully exported ";
+        switch (type) {
+            case ExportType::PREDICTIONS:
+                message += "predictions";
+                break;
+            case ExportType::MODEL_STRUCTURE:
+                message += "model structure";
+                break;
+            case ExportType::MODEL_RESULTS:
+                message += "model results";
+                break;
+            case ExportType::PLOT_DATA:
+                message += "plot data";
+                break;
+            case ExportType::ALL:
+                message += "all data";
+                break;
+        }
+        message += " to " + directory;
+        showSuccessPopup(message);
+    } catch (const std::exception& e) {
+        showErrorPopup("Error exporting results: " + std::string(e.what()));
     }
 }
-} 
+
+void GUI::showErrorPopup(const std::string& message) {
+    ImGui::OpenPopup("Error");
+    if (ImGui::BeginPopupModal("Error", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s", message.c_str());
+        if (ImGui::Button("OK")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+void GUI::showSuccessPopup(const std::string& message) {
+    ImGui::OpenPopup("Success");
+    if (ImGui::BeginPopupModal("Success", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s", message.c_str());
+        if (ImGui::Button("OK")) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
+} // namespace DataAnalyzer 
