@@ -624,234 +624,183 @@ void GUI::renderHyperparameters() {
         }
     }
     
-    // Training section
+    // Train Model button
     ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::Text("Model Training");
-    
-    // Check if we have valid selections
-    bool canTrain = !selectedFeatures_.empty() && !selectedTargetIndices_.empty();
-    
-    if (canTrain) {
-        if (ImGui::Button("Train Model", ImVec2(120, 0))) {
-            // Show a "Tuning hyperparameters..." message if using automatic tuning
-            if (autoHyperparameters_) {
-                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Tuning hyperparameters... This may take a moment.");
-                
-                // Simple loading spinner
-                float time = ImGui::GetTime();
-                const float radius = 10.0f;
-                const ImVec2 center = ImGui::GetCursorScreenPos();
-                ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                
-                // Draw spinner
-                for (int i = 0; i < 8; i++) {
-                    float a = time * 8.0f + i * 0.5f;
-                    float alpha = 1.0f - 0.125f * i;
-                    draw_list->AddCircleFilled(
-                        ImVec2(center.x + std::cos(a) * radius, center.y + std::sin(a) * radius),
-                        2.5f,
-                        ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, alpha)),
-                        8
-                    );
-                }
-                
-                ImGui::Dummy(ImVec2(2 * radius + 5, 2 * radius + 5));
+    if (ImGui::Button("Train Model", ImVec2(200, 0))) {
+        // Show a "Tuning hyperparameters..." message if using automatic tuning
+        if (autoHyperparameters_) {
+            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Tuning hyperparameters... This may take a moment.");
+            
+            // Simple loading spinner
+            float time = ImGui::GetTime();
+            const float radius = 10.0f;
+            const ImVec2 center = ImGui::GetCursorScreenPos();
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            
+            // Draw spinner
+            for (int i = 0; i < 8; i++) {
+                float a = time * 8.0f + i * 0.5f;
+                float alpha = 1.0f - 0.125f * i;
+                draw_list->AddCircleFilled(
+                    ImVec2(center.x + std::cos(a) * radius, center.y + std::sin(a) * radius),
+                    2.5f,
+                    ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, alpha)),
+                    8
+                );
             }
             
-            // Prepare data for training
-            Eigen::MatrixXd X = dataHandler_.getSelectedFeatures(selectedFeatures_);
-            Eigen::VectorXd y;
-            
-            // For simplicity, we'll use the first selected target
-            if (!selectedTargetIndices_.empty()) {
-                y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
-            }
-            
-            // Create model based on selection
-            switch (selectedModelIndex_) {
-                case 0: // Linear Regression
-                    model_ = std::make_unique<LinearRegression>();
-                    break;
-                    
-                case 1: // Elastic Net
-                    if (autoHyperparameters_) {
-                        // Define grid search values for ElasticNet
-                        std::vector<double> alpha_values = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
-                        std::vector<double> lambda_values = {0.001, 0.01, 0.1, 1.0, 10.0};
-                        
-                        // Create temporary model for grid search
-                        ElasticNet tempModel;
-                        auto [best_alpha, best_lambda] = tempModel.gridSearch(X, y, alpha_values, lambda_values);
-                        
-                        // Create model with best hyperparameters
-                        model_ = std::make_unique<ElasticNet>(best_alpha, best_lambda);
-                        
-                        // Update UI values to reflect the best parameters
-                        alpha_ = best_alpha;
-                        lambda_ = best_lambda;
-                    } else {
-                        model_ = std::make_unique<ElasticNet>(alpha_, lambda_);
-                    }
-                    break;
-                    
-                case 2: // XGBoost
-                    if (autoHyperparameters_) {
-                        // Define grid search values for XGBoost
-                        std::vector<int> n_estimators_values = {50, 100, 200};
-                        std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
-                        std::vector<int> max_depth_values = {3, 5, 7};
-                        
-                        // Create temporary model for grid search
-                        XGBoost tempModel;
-                        auto [best_n_estimators, best_learning_rate, best_max_depth] = 
-                            tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
-                        
-                        // Create model with best hyperparameters
-                        model_ = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, subsample_);
-                        
-                        // Update UI values to reflect the best parameters
-                        n_estimators_ = best_n_estimators;
-                        learning_rate_ = best_learning_rate;
-                        max_depth_ = best_max_depth;
-                    } else {
-                        model_ = std::make_unique<XGBoost>(n_estimators_, learning_rate_, max_depth_, subsample_);
-                    }
-                    break;
-                    
-                case 3: // Gradient Boosting
-                    if (autoHyperparameters_) {
-                        // Define grid search values for Gradient Boosting
-                        std::vector<int> n_estimators_values = {50, 100, 200};
-                        std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
-                        std::vector<int> max_depth_values = {3, 5, 7};
-                        
-                        // Create temporary model for grid search
-                        GradientBoosting tempModel;
-                        auto [best_n_estimators, best_learning_rate, best_max_depth] = 
-                            tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
-                        
-                        // Create model with best hyperparameters
-                        model_ = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth);
-                        
-                        // Update UI values to reflect the best parameters
-                        n_estimators_ = best_n_estimators;
-                        learning_rate_ = best_learning_rate;
-                        max_depth_ = best_max_depth;
-                    } else {
-                        model_ = std::make_unique<GradientBoosting>(n_estimators_, learning_rate_, max_depth_);
-                    }
-                    break;
-                    
-                case 4: // Neural Network
-                    if (autoHyperparameters_) {
-                        // Define grid search values for Neural Network
-                        std::vector<std::vector<int>> layer_configs = {
-                            {10}, {20}, {10, 10}, {20, 10}
-                        };
-                        std::vector<double> learning_rate_values = {0.001, 0.01, 0.05, 0.1};
-                        std::vector<double> max_iterations_values = {500, 1000, 2000};
-                        
-                        // Create temporary model for grid search
-                        NeuralNetwork tempModel;
-                        auto [best_layers, best_learning_rate, best_iterations] = 
-                            tempModel.gridSearch(X, y, layer_configs, learning_rate_values, max_iterations_values);
-                        
-                        // Create model with best hyperparameters
-                        model_ = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations);
-                        
-                        // Update UI values to reflect the best parameters
-                        hidden_layers_ = best_layers.size();
-                        if (!best_layers.empty()) {
-                            neurons_per_layer_ = best_layers[0]; // Simplification: use first layer size
-                        }
-                        learning_rate_ = best_learning_rate;
-                        max_iterations_ = best_iterations;
-                    } else {
-                        // Create vector for hidden layer sizes
-                        std::vector<int> hidden_layer_sizes(hidden_layers_, neurons_per_layer_);
-                        model_ = std::make_unique<NeuralNetwork>(hidden_layer_sizes, learning_rate_, max_iterations_);
-                    }
-                    break;
-            }
-            
-            // Train the model
-            if (model_) {
-                bool success = model_->train(X, y);
-                
-                if (success) {
-                    // Get predictions
-                    predictions_ = model_->predict(X);
-                    
-                    // Create plot
-                    plotManager_ = std::make_shared<PlotManager>();
-                    auto timeSeriesPlot = std::make_shared<TimeSeries>("Model Predictions", "Date", "Value");
-                    timeSeriesPlot->setData(dataHandler_.getDates(), dataHandler_.getTargetValues(), predictions_);
-                    plotManager_->addPlot(timeSeriesPlot);
-                    
-                    // Show success message
-                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Model trained successfully!");
-                    
-                    // Show a message about the hyperparameters if automatic tuning was used
-                    if (autoHyperparameters_) {
-                        ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters were found via grid search.");
-                        
-                        // Display the best hyperparameters
-                        auto hyperparams = model_->getHyperparameters();
-                        ImGui::Text("Best hyperparameters:");
-                        
-                        for (const auto& [name, value] : hyperparams) {
-                            ImGui::BulletText("%s: %.4f", name.c_str(), value);
-                        }
-                    }
-                } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error training model!");
-                }
-            }
+            ImGui::Dummy(ImVec2(2 * radius + 5, 2 * radius + 5));
         }
         
-        // Display model statistics if trained
-        if (model_) {
-            ImGui::Spacing();
-            ImGui::Text("Model Statistics:");
-            
-            auto stats = model_->getStats();
-            ImGui::Text("RMSE: %.4f", stats["RMSE"]);
-            ImGui::Text("R²: %.4f", stats["R²"]);
-            
-            // Show model coefficients (if available)
-            Eigen::VectorXd coefficients = model_->getCoefficients();
-            if (coefficients.size() > 0) {
-                ImGui::Spacing();
-                ImGui::Text("Model Coefficients:");
+        // Prepare data for training
+        Eigen::MatrixXd X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+        Eigen::VectorXd y;
+        
+        // For simplicity, we'll use the first selected target
+        if (!selectedTargetIndices_.empty()) {
+            y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+        }
+        
+        // Create model based on selection
+        switch (selectedModelIndex_) {
+            case 0: // Linear Regression
+                model_ = std::make_unique<LinearRegression>();
+                break;
                 
-                if (ImGui::BeginTable("CoefficientsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("Feature");
-                    ImGui::TableSetupColumn("Coefficient");
-                    ImGui::TableHeadersRow();
+            case 1: // Elastic Net
+                if (autoHyperparameters_) {
+                    // Define grid search values for ElasticNet
+                    std::vector<double> alpha_values = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
+                    std::vector<double> lambda_values = {0.001, 0.01, 0.1, 1.0, 10.0};
                     
-                    // Show intercept
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("Intercept");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%.4f", coefficients(0));
+                    // Create temporary model for grid search
+                    ElasticNet tempModel;
+                    auto [best_alpha, best_lambda] = tempModel.gridSearch(X, y, alpha_values, lambda_values);
                     
-                    // Show coefficients for each feature
-                    for (size_t i = 0; i < selectedFeatures_.size() && i + 1 < static_cast<size_t>(coefficients.size()); ++i) {
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("%s", dataHandler_.getColumnNames()[selectedFeatures_[i]].c_str());
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%.4f", coefficients(i + 1));
-                    }
+                    // Create model with best hyperparameters
+                    model_ = std::make_unique<ElasticNet>(best_alpha, best_lambda);
                     
-                    ImGui::EndTable();
+                    // Update UI values to reflect the best parameters
+                    alpha_ = best_alpha;
+                    lambda_ = best_lambda;
+                } else {
+                    model_ = std::make_unique<ElasticNet>(alpha_, lambda_);
                 }
+                break;
+                
+            case 2: // XGBoost
+                if (autoHyperparameters_) {
+                    // Define grid search values for XGBoost
+                    std::vector<int> n_estimators_values = {50, 100, 200};
+                    std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
+                    std::vector<int> max_depth_values = {3, 5, 7};
+                    
+                    // Create temporary model for grid search
+                    XGBoost tempModel;
+                    auto [best_n_estimators, best_learning_rate, best_max_depth] = 
+                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
+                    
+                    // Create model with best hyperparameters
+                    model_ = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, subsample_);
+                    
+                    // Update UI values to reflect the best parameters
+                    n_estimators_ = best_n_estimators;
+                    learning_rate_ = best_learning_rate;
+                    max_depth_ = best_max_depth;
+                } else {
+                    model_ = std::make_unique<XGBoost>(n_estimators_, learning_rate_, max_depth_, subsample_);
+                }
+                break;
+                
+            case 3: // Gradient Boosting
+                if (autoHyperparameters_) {
+                    // Define grid search values for Gradient Boosting
+                    std::vector<int> n_estimators_values = {50, 100, 200};
+                    std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
+                    std::vector<int> max_depth_values = {3, 5, 7};
+                    
+                    // Create temporary model for grid search
+                    GradientBoosting tempModel;
+                    auto [best_n_estimators, best_learning_rate, best_max_depth] = 
+                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
+                    
+                    // Create model with best hyperparameters
+                    model_ = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth);
+                    
+                    // Update UI values to reflect the best parameters
+                    n_estimators_ = best_n_estimators;
+                    learning_rate_ = best_learning_rate;
+                    max_depth_ = best_max_depth;
+                } else {
+                    model_ = std::make_unique<GradientBoosting>(n_estimators_, learning_rate_, max_depth_);
+                }
+                break;
+                
+            case 4: // Neural Network
+                if (autoHyperparameters_) {
+                    // Define grid search values for Neural Network
+                    std::vector<std::vector<int>> layer_configs = {
+                        {10}, {20}, {10, 10}, {20, 10}
+                    };
+                    std::vector<double> learning_rate_values = {0.001, 0.01, 0.05, 0.1};
+                    std::vector<double> max_iterations_values = {500, 1000, 2000};
+                    
+                    // Create temporary model for grid search
+                    NeuralNetwork tempModel;
+                    auto [best_layers, best_learning_rate, best_iterations] = 
+                        tempModel.gridSearch(X, y, layer_configs, learning_rate_values, max_iterations_values);
+                    
+                    // Create model with best hyperparameters
+                    model_ = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations);
+                    
+                    // Update UI values to reflect the best parameters
+                    hidden_layers_ = best_layers.size();
+                    if (!best_layers.empty()) {
+                        neurons_per_layer_ = best_layers[0]; // Simplification: use first layer size
+                    }
+                    learning_rate_ = best_learning_rate;
+                    max_iterations_ = best_iterations;
+                } else {
+                    // Create vector for hidden layer sizes
+                    std::vector<int> hidden_layer_sizes(hidden_layers_, neurons_per_layer_);
+                    model_ = std::make_unique<NeuralNetwork>(hidden_layer_sizes, learning_rate_, max_iterations_);
+                }
+                break;
+        }
+        
+        // Train the model
+        if (model_) {
+            bool success = model_->train(X, y);
+            
+            if (success) {
+                // Get predictions
+                predictions_ = model_->predict(X);
+                
+                // Create plot
+                plotManager_ = std::make_shared<PlotManager>();
+                auto timeSeriesPlot = std::make_shared<TimeSeries>("Model Predictions", "Date", "Value");
+                timeSeriesPlot->setData(dataHandler_.getDates(), dataHandler_.getTargetValues(), predictions_);
+                plotManager_->addPlot(timeSeriesPlot);
+                
+                // Show success message
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Model trained successfully!");
+                
+                // Show a message about the hyperparameters if automatic tuning was used
+                if (autoHyperparameters_) {
+                    ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters were found via grid search.");
+                    
+                    // Display the best hyperparameters
+                    auto hyperparams = model_->getHyperparameters();
+                    ImGui::Text("Best hyperparameters:");
+                    
+                    for (const auto& [name, value] : hyperparams) {
+                        ImGui::BulletText("%s: %.4f", name.c_str(), value);
+                    }
+                }
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error training model!");
             }
         }
-    } else {
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Cannot train: Please select input features and target variable first.");
     }
     
     // Navigation buttons
@@ -861,8 +810,17 @@ void GUI::renderHyperparameters() {
     }
     
     ImGui::SameLine();
-    if (ImGui::Button("Next: Plotting", ImVec2(200, 0))) {
-        setScreen(Screen::PLOTTING);
+    
+    // Only enable Next button if model is trained
+    if (model_) {
+        if (ImGui::Button("Next: Plotting", ImVec2(200, 0))) {
+            setScreen(Screen::PLOTTING);
+        }
+    } else {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+        ImGui::Button("Next: Plotting", ImVec2(200, 0));
+        ImGui::PopStyleVar();
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Please train the model first!");
     }
 }
 

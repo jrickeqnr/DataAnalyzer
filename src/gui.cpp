@@ -362,7 +362,17 @@ void GUI::renderMainMenu() {
                 setScreen(Screen::FILE_BROWSER);
             }
             
-            if (ImGui::MenuItem("Load CSV", "Ctrl+O")) {
+            if (ImGui::MenuItem("New", "Ctrl+N")) {
+                // Reset all state
+                selectedFilePath_.clear();
+                outliers_.clear();
+                selectedModelIndex_ = 0;
+                selectedFeatures_.clear();
+                selectedTargetIndices_.clear();
+                includeSeasonality_ = false;
+                model_.reset();
+                plotManager_.reset();
+                predictions_ = Eigen::VectorXd();
                 setScreen(Screen::FILE_BROWSER);
             }
             
@@ -418,6 +428,8 @@ void GUI::renderMainMenu() {
             if (ImGui::MenuItem("Plotting", nullptr, currentScreen_ == Screen::PLOTTING,
                                 model_ != nullptr)) {
                 setScreen(Screen::PLOTTING);
+            } else if (!model_) {
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Please train a model first!");
             }
             
             ImGui::EndMenu();
