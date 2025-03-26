@@ -48,9 +48,6 @@ void GUI::renderFileBrowser() {
                 // Load the CSV file
                 if (dataHandler_.loadCSV(selectedFilePath_)) {
                     ImGui::Text("File loaded successfully!");
-                    
-                    // Automatically proceed to outlier detection
-                    setScreen(Screen::OUTLIER_DETECTION);
                 } else {
                     ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error loading file!");
                     selectedFilePath_.clear();
@@ -62,12 +59,18 @@ void GUI::renderFileBrowser() {
     if (!selectedFilePath_.empty()) {
         ImGui::Text("Selected File: %s", selectedFilePath_.c_str());
         
-        // Display data summary
+        // Display data summary in a scrollable region
         ImGui::Spacing();
+        ImGui::BeginChild("DataSummary", ImVec2(0, ImGui::GetWindowHeight() * 0.6f), true);
         ImGui::TextWrapped("%s", dataHandler_.getDataSummary().c_str());
+        ImGui::EndChild();
         
+        // Navigation button aligned to the right
         ImGui::Spacing();
-        if (ImGui::Button("Next: Outlier Detection", ImVec2(200, 0))) {
+        float windowWidth = ImGui::GetWindowWidth();
+        float buttonWidth = 200.0f;
+        ImGui::SetCursorPosX(windowWidth - buttonWidth - 20.0f); // 20.0f for padding
+        if (ImGui::Button("Next: Outlier Detection", ImVec2(buttonWidth, 0))) {
             setScreen(Screen::OUTLIER_DETECTION);
         }
     }
@@ -217,14 +220,14 @@ void GUI::renderModelSelection() {
     
     // Display model description
     ImGui::Spacing();
-    ImGui::TextWrapped("Elastic Net Regression combines L1 and L2 regularization to balance sparsity and stability. It's effective for feature selection and handling correlated predictors. The alpha parameter controls the mix of L1 and L2 regularization, while lambda controls the overall regularization strength.");
+    ImGui::TextWrapped("Elastic Net Regression combines L1 and L2 regularization to balance sparsity and stability. It's effective for feature selection and handling correlated predictors. The α (alpha) parameter controls the mix of L1 and L2 regularization, while λ (lambda) controls the overall regularization strength.");
     
     // Display model diagram (simplified)
     ImGui::Spacing();
     if (ImGui::CollapsingHeader("Model Diagram", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Indent(20.0f);
-        ImGui::TextWrapped("Input Features → [Elastic Net] → Prediction");
-        ImGui::TextWrapped("Loss = MSE + α·λ·L1 + (1-α)·λ·L2");
+        ImGui::TextWrapped("Input Features -> [Elastic Net] -> Prediction");
+        ImGui::TextWrapped("Loss = MSE + alpha*lambda*L1 + (1-alpha)*lambda*L2");
         ImGui::Unindent(20.0f);
     }
     
@@ -252,12 +255,13 @@ void GUI::renderVariableSelection() {
     ImGui::Text("Variable Selection");
     ImGui::Separator();
     
-    ImGui::TextWrapped("Select features (independent variables) and the target (dependent variable) for the model.");
+    ImGui::TextWrapped("Select input features (independent variables) and target variable (dependent variable) for the model.");
     ImGui::Spacing();
     
     // Get column names and indices
     const std::vector<std::string>& columnNames = dataHandler_.getColumnNames();
     const std::vector<size_t>& numericIndices = dataHandler_.getNumericColumnIndices();
+    const std::vector<size_t>& dateIndices = dataHandler_.getDateColumnIndices();
     
     // Initialize selected features if empty
     if (selectedFeatures_.empty()) {
@@ -268,46 +272,185 @@ void GUI::renderVariableSelection() {
         
         // Default target: last numeric column
         if (!numericIndices.empty()) {
-            selectedTargetIndex_ = numericIndices.back();
+            selectedTargetIndices_.push_back(numericIndices.back());
         }
     }
-    
-    // Feature selection
-    ImGui::Text("Select Features:");
-    ImGui::Indent(20.0f);
-    
+
+    // Search functionality
+    static char searchBuffer[128] = "";
+    ImGui::Text("Search Variables:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(300);
+    if (ImGui::InputText("##search", searchBuffer, IM_ARRAYSIZE(searchBuffer))) {
+        // Search is handled in real-time as user types
+    }
+    ImGui::Spacing();
+
+    // Create two columns for input and target selection
+    const float padding = 10.0f;
+    const float availWidth = ImGui::GetContentRegionAvail().x;
+    const float columnWidth = (availWidth - 3 * padding) / 2;
+
+    ImGui::Columns(2, "VariableSelectionColumns", false);
+    ImGui::SetColumnWidth(0, columnWidth);
+    ImGui::SetColumnWidth(1, columnWidth);
+
+    // Input Features Selection (Left Column)
+    ImGui::BeginChild("InputFeaturesFrame", ImVec2(columnWidth, ImGui::GetWindowHeight() * 0.6f), true);
+    ImGui::Text("Input Features");
+    ImGui::Separator();
+    ImGui::TextWrapped("Select variables to use as input features for the model.");
+    ImGui::Spacing();
+
+    // Control buttons for input features
+    if (ImGui::Button("Select All", ImVec2(-1, 0))) {
+        selectedFeatures_.clear();
+        for (size_t idx : numericIndices) {
+            // Don't add date columns
+            if (std::find(dateIndices.begin(), dateIndices.end(), idx) == dateIndices.end()) {
+                selectedFeatures_.push_back(idx);
+            }
+        }
+    }
+    ImGui::Separator();
+
+    // Scrollable area for input selection with search
+    ImGui::BeginChild("InputFeatures", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 4), true);
     for (size_t idx : numericIndices) {
-        bool isSelected = std::find(selectedFeatures_.begin(), selectedFeatures_.end(), idx) != selectedFeatures_.end();
-        bool isTarget = idx == selectedTargetIndex_;
-        
-        if (ImGui::Checkbox(columnNames[idx].c_str(), &isSelected)) {
-            if (isSelected) {
-                if (std::find(selectedFeatures_.begin(), selectedFeatures_.end(), idx) == selectedFeatures_.end()) {
-                    selectedFeatures_.push_back(idx);
-                }
-            } else {
-                selectedFeatures_.erase(
-                    std::remove(selectedFeatures_.begin(), selectedFeatures_.end(), idx),
-                    selectedFeatures_.end()
-                );
-            }
+        // Skip date columns
+        if (std::find(dateIndices.begin(), dateIndices.end(), idx) != dateIndices.end()) {
+            continue;
         }
-        
-        ImGui::SameLine();
-        int targetIdx = static_cast<int>(idx);
-        if (ImGui::RadioButton(("Target##" + std::to_string(idx)).c_str(), &targetIdx, static_cast<int>(selectedTargetIndex_))) {
-            selectedTargetIndex_ = static_cast<size_t>(targetIdx);
-            // If the target is selected as a feature, remove it from features
-            if (std::find(selectedFeatures_.begin(), selectedFeatures_.end(), idx) != selectedFeatures_.end()) {
-                selectedFeatures_.erase(
-                    std::remove(selectedFeatures_.begin(), selectedFeatures_.end(), idx),
-                    selectedFeatures_.end()
-                );
+
+        // Apply search filter
+        std::string colName = columnNames[idx];
+        if (!searchBuffer[0] || colName.find(searchBuffer) != std::string::npos) {
+            bool isSelected = std::find(selectedFeatures_.begin(), selectedFeatures_.end(), idx) != selectedFeatures_.end();
+            if (ImGui::Checkbox(colName.c_str(), &isSelected)) {
+                if (isSelected) {
+                    selectedFeatures_.push_back(idx);
+                } else {
+                    selectedFeatures_.erase(
+                        std::remove(selectedFeatures_.begin(), selectedFeatures_.end(), idx),
+                        selectedFeatures_.end()
+                    );
+                }
+            }
+            
+            // Add tooltip for each feature
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Text("Column: %s", colName.c_str());
+                ImGui::Text("Type: Numeric");
+                ImGui::EndTooltip();
             }
         }
     }
+    ImGui::EndChild();
+
+    // Warning about overlapping selections
+    std::vector<size_t> overlapping;
+    for (size_t idx : selectedFeatures_) {
+        if (std::find(selectedTargetIndices_.begin(), selectedTargetIndices_.end(), idx) != selectedTargetIndices_.end()) {
+            overlapping.push_back(idx);
+        }
+    }
+    if (!overlapping.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "Warning: Some variables are selected as both input and target:");
+        std::string overlap_vars;
+        for (size_t i = 0; i < overlapping.size(); ++i) {
+            overlap_vars += columnNames[overlapping[i]];
+            if (i < overlapping.size() - 1) overlap_vars += ", ";
+        }
+        ImGui::TextWrapped("%s", overlap_vars.c_str());
+    }
+    ImGui::EndChild();
+
+    ImGui::NextColumn();
+
+    // Target Variable Selection (Right Column)
+    ImGui::BeginChild("TargetVariableFrame", ImVec2(columnWidth, ImGui::GetWindowHeight() * 0.6f), true);
+    ImGui::Text("Target Variables");
+    ImGui::Separator();
+    ImGui::TextWrapped("Select variable(s) to predict. For best results, select only one target variable.");
+    ImGui::Spacing();
+
+    // Scrollable area for target selection with search
+    ImGui::BeginChild("TargetVariables", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
+    for (size_t idx : numericIndices) {
+        // Skip date columns
+        if (std::find(dateIndices.begin(), dateIndices.end(), idx) != dateIndices.end()) {
+            continue;
+        }
+
+        // Apply search filter
+        std::string colName = columnNames[idx];
+        if (!searchBuffer[0] || colName.find(searchBuffer) != std::string::npos) {
+            bool isTarget = std::find(selectedTargetIndices_.begin(), selectedTargetIndices_.end(), idx) != selectedTargetIndices_.end();
+            if (ImGui::Checkbox(colName.c_str(), &isTarget)) {
+                if (isTarget) {
+                    selectedTargetIndices_.push_back(idx);
+                } else {
+                    selectedTargetIndices_.erase(
+                        std::remove(selectedTargetIndices_.begin(), selectedTargetIndices_.end(), idx),
+                        selectedTargetIndices_.end()
+                    );
+                }
+            }
+
+            // Add tooltip for each potential target
+            if (ImGui::IsItemHovered()) {
+                ImGui::BeginTooltip();
+                ImGui::Text("Column: %s", colName.c_str());
+                ImGui::Text("Type: Numeric");
+                ImGui::EndTooltip();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    // Warning about multiple targets or no targets
+    if (selectedTargetIndices_.size() > 1) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "Warning: Multiple targets selected.");
+        ImGui::TextWrapped("This may affect model performance. Consider selecting only one target for better results.");
+    } else if (selectedTargetIndices_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "Warning: No target variable selected.");
+        ImGui::TextWrapped("You must select at least one target variable to proceed.");
+    }
+    ImGui::EndChild();
+
+    ImGui::Columns(1);
     
-    ImGui::Unindent(20.0f);
+    // Selection Summary
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Text("Selection Summary:");
+    
+    if (!selectedFeatures_.empty()) {
+        ImGui::Text("Input Features (%zu):", selectedFeatures_.size());
+        ImGui::SameLine();
+        std::string features;
+        for (size_t i = 0; i < selectedFeatures_.size(); ++i) {
+            features += columnNames[selectedFeatures_[i]];
+            if (i < selectedFeatures_.size() - 1) features += ", ";
+        }
+        ImGui::TextWrapped("%s", features.c_str());
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No input features selected!");
+    }
+
+    ImGui::Text("Target Variables (%zu):", selectedTargetIndices_.size());
+    ImGui::SameLine();
+    if (!selectedTargetIndices_.empty()) {
+        std::string targets;
+        for (size_t i = 0; i < selectedTargetIndices_.size(); ++i) {
+            targets += columnNames[selectedTargetIndices_[i]];
+            if (i < selectedTargetIndices_.size() - 1) targets += ", ";
+        }
+        ImGui::TextWrapped("%s", targets.c_str());
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "No target variables selected!");
+    }
     
     // Navigation buttons
     ImGui::Spacing();
@@ -317,8 +460,8 @@ void GUI::renderVariableSelection() {
     
     ImGui::SameLine();
     
-    // Validate that at least one feature is selected
-    bool canProceed = !selectedFeatures_.empty();
+    // Validate selection
+    bool canProceed = !selectedFeatures_.empty() && !selectedTargetIndices_.empty();
     
     if (canProceed) {
         if (ImGui::Button("Next: Hyperparameters", ImVec2(200, 0))) {
@@ -329,7 +472,12 @@ void GUI::renderVariableSelection() {
         ImGui::Button("Next: Hyperparameters", ImVec2(200, 0));
         ImGui::PopStyleVar();
         
-        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Please select at least one feature!");
+        if (selectedFeatures_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Please select at least one input feature!");
+        }
+        if (selectedTargetIndices_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Please select at least one target variable!");
+        }
     }
 }
 
@@ -431,7 +579,7 @@ void GUI::renderPlotting() {
         outliers_.clear();
         selectedModelIndex_ = 0;
         selectedFeatures_.clear();
-        selectedTargetIndex_ = 0;
+        selectedTargetIndices_.clear();
         includeSeasonality_ = false;
         alpha_ = 0.5;
         lambda_ = 1.0;

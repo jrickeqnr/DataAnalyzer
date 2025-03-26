@@ -78,7 +78,7 @@ private:
     std::map<size_t, std::vector<size_t>> outliers_;
     size_t selectedModelIndex_ = 0;
     std::vector<size_t> selectedFeatures_;
-    size_t selectedTargetIndex_ = 0;
+    std::vector<size_t> selectedTargetIndices_;
     bool includeSeasonality_ = false;
     double alpha_ = 0.5;
     double lambda_ = 1.0;
