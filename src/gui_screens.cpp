@@ -495,9 +495,56 @@ void GUI::renderHyperparameters() {
     
     // Hyperparameter configuration
     static bool autoTune = false;
+    static bool isTraining = false;  // Add state variable for training
     ImGui::Checkbox("Automatic Hyperparameter Tuning", &autoTune);
     
     autoHyperparameters_ = autoTune;
+
+    // Show status during training
+    if (isTraining) {
+        ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Tuning hyperparameters... This may take a moment.");
+    }
+
+    // Show best parameters if available during auto-tuning
+    if (autoTune && model_) {
+        auto stats = model_->getStats();
+        if (stats.find("Best RMSE") != stats.end()) {
+            ImGui::Separator();
+            ImGui::Text("Best Parameters Found:");
+            ImGui::Indent(20.0f);
+            ImGui::Text("RMSE: %.4f", stats["Best RMSE"]);
+            
+            if (stats.find("Best Learning Rate") != stats.end()) {
+                ImGui::Text("Learning Rate: %.4f", stats["Best Learning Rate"]);
+            }
+            if (stats.find("Best N Estimators") != stats.end()) {
+                ImGui::Text("N Estimators: %d", static_cast<int>(stats["Best N Estimators"]));
+            }
+            if (stats.find("Best Max Depth") != stats.end()) {
+                ImGui::Text("Max Depth: %d", static_cast<int>(stats["Best Max Depth"]));
+            }
+            if (stats.find("Best Alpha") != stats.end()) {
+                ImGui::Text("Alpha: %.4f", stats["Best Alpha"]);
+            }
+            if (stats.find("Best Lambda") != stats.end()) {
+                ImGui::Text("Lambda: %.4f", stats["Best Lambda"]);
+            }
+            if (stats.find("Best Min Samples Split") != stats.end()) {
+                ImGui::Text("Min Samples Split: %d", static_cast<int>(stats["Best Min Samples Split"]));
+            }
+            ImGui::Unindent(20.0f);
+        }
+    }
+    // Show current metrics if not auto-tuning
+    else if (model_) {
+        auto stats = model_->getStats();
+        if (stats.find("Current RMSE") != stats.end()) {
+            ImGui::Text("Current RMSE: %.4f", stats["Current RMSE"]);
+        }
+        if (stats.find("Current R²") != stats.end()) {
+            ImGui::Text("Current R²: %.4f", stats["Current R²"]);
+        }
+    }
     
     // Different hyperparameters based on model type
     if (!autoTune) {
@@ -548,15 +595,19 @@ void GUI::renderHyperparameters() {
                     int n_estimators = static_cast<int>(n_estimators_);
                     float learning_rate = static_cast<float>(learning_rate_);
                     int max_depth = static_cast<int>(max_depth_);
+                    int min_samples_split = static_cast<int>(min_samples_split_);
                     
-                    if (ImGui::SliderInt("Number of Estimators", &n_estimators, 10, 500)) {
+                    if (ImGui::SliderInt("Number of Estimators", &n_estimators, 5, 500)) {
                         n_estimators_ = n_estimators;
                     }
-                    if (ImGui::SliderFloat("Learning Rate", &learning_rate, 0.01f, 1.0f, "%.2f")) {
+                    if (ImGui::SliderFloat("Learning Rate", &learning_rate, 0.1, 0.8, "%.2f")) {
                         learning_rate_ = static_cast<double>(learning_rate);
                     }
-                    if (ImGui::SliderInt("Max Depth", &max_depth, 1, 10)) {
+                    if (ImGui::SliderInt("Max Depth", &max_depth, 2, 5)) {
                         max_depth_ = max_depth;
+                    }
+                    if (ImGui::SliderInt("Min Samples Split", &min_samples_split, 2, 5)) {
+                        min_samples_split_ = static_cast<double>(min_samples_split);
                     }
                 }
                 break;
@@ -808,30 +859,7 @@ void GUI::renderHyperparameters() {
     
     ImGui::Spacing();
     if (ImGui::Button("Train Model", ImVec2(200, 0))) {
-        // Show a "Tuning hyperparameters..." message if using automatic tuning
-        if (autoHyperparameters_) {
-            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Tuning hyperparameters... This may take a moment.");
-            
-            // Simple loading spinner
-            float time = ImGui::GetTime();
-            const float radius = 10.0f;
-            const ImVec2 center = ImGui::GetCursorScreenPos();
-            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            
-            // Draw spinner
-            for (int i = 0; i < 8; i++) {
-                float a = time * 8.0f + i * 0.5f;
-                float alpha = 1.0f - 0.125f * i;
-                draw_list->AddCircleFilled(
-                    ImVec2(center.x + std::cos(a) * radius, center.y + std::sin(a) * radius),
-                    2.5f,
-                    ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, alpha)),
-                    8
-                );
-            }
-            
-            ImGui::Dummy(ImVec2(2 * radius + 5, 2 * radius + 5));
-        }
+        isTraining = true;  // Set training state when button is clicked
         
         // Prepare data for training
         Eigen::MatrixXd X = dataHandler_.getSelectedFeatures(selectedFeatures_);
@@ -879,23 +907,25 @@ void GUI::renderHyperparameters() {
                 
             case 2: // XGBoost
                 if (autoHyperparameters_) {
-                    // Define grid search values for XGBoost
-                    std::vector<int> n_estimators_values = {50, 100, 200};
-                    std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
-                    std::vector<int> max_depth_values = {3, 5, 7};
+                    // Define expanded grid search values for XGBoost
+                    std::vector<int> n_estimators_values = {50, 100, 200};  // Reduced from 5 to 3 values
+                    std::vector<double> learning_rate_values = {0.01, 0.1, 0.3};  // Adjusted range
+                    std::vector<int> max_depth_values = {3, 4, 5};  // Reduced and centered range
+                    std::vector<double> subsample_values = {0.8, 1.0};  // Most common values
                     
                     // Create temporary model for grid search
                     XGBoost tempModel;
-                    auto [best_n_estimators, best_learning_rate, best_max_depth] = 
-                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
+                    auto [best_n_estimators, best_learning_rate, best_max_depth, best_subsample] = 
+                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values, subsample_values);
                     
                     // Create model with best hyperparameters
-                    model_ = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, subsample_);
+                    model_ = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, best_subsample);
                     
                     // Update UI values to reflect the best parameters
                     n_estimators_ = best_n_estimators;
                     learning_rate_ = best_learning_rate;
                     max_depth_ = best_max_depth;
+                    subsample_ = best_subsample;
                 } else {
                     model_ = std::make_unique<XGBoost>(n_estimators_, learning_rate_, max_depth_, subsample_);
                 }
@@ -903,49 +933,55 @@ void GUI::renderHyperparameters() {
                 
             case 3: // Gradient Boosting
                 if (autoHyperparameters_) {
-                    // Define grid search values for Gradient Boosting
-                    std::vector<int> n_estimators_values = {50, 100, 200};
-                    std::vector<double> learning_rate_values = {0.01, 0.05, 0.1, 0.2};
-                    std::vector<int> max_depth_values = {3, 5, 7};
+                    // Define grid search values for Gradient Boosting - adjusted for very small dataset
+                    std::vector<int> n_estimators_values = {5, 10, 15, 20};  // Start with fewer trees
+                    std::vector<double> learning_rate_values = {0.3, 0.5, 0.8, 1.0};  // Higher learning rates for faster convergence
+                    std::vector<int> max_depth_values = {2, 3, 4};  // Shallow trees to prevent overfitting
+                    std::vector<int> min_samples_split_values = {2, 3};  // Allow slightly larger minimum splits
                     
                     // Create temporary model for grid search
                     GradientBoosting tempModel;
-                    auto [best_n_estimators, best_learning_rate, best_max_depth] = 
-                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values);
+                    auto [best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split] = 
+                        tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values, min_samples_split_values);
                     
                     // Create model with best hyperparameters
-                    model_ = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth);
+                    model_ = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split);
                     
                     // Update UI values to reflect the best parameters
                     n_estimators_ = best_n_estimators;
                     learning_rate_ = best_learning_rate;
                     max_depth_ = best_max_depth;
+                    min_samples_split_ = best_min_samples_split;
                 } else {
-                    model_ = std::make_unique<GradientBoosting>(n_estimators_, learning_rate_, max_depth_);
+                    model_ = std::make_unique<GradientBoosting>(n_estimators_, learning_rate_, max_depth_, min_samples_split_);
                 }
                 break;
                 
             case 4: // Neural Network
                 if (autoHyperparameters_) {
-                    // Define grid search values for Neural Network
+                    // Define expanded grid search values for Neural Network
                     std::vector<std::vector<int>> layer_configs = {
-                        {10}, {20}, {10, 10}, {20, 10}
+                        {10},           // Simple single layer
+                        {20},           // Larger single layer
+                        {10, 5},        // Two layers, decreasing
+                        {10, 10}        // Two equal layers
                     };
-                    std::vector<double> learning_rate_values = {0.001, 0.01, 0.05, 0.1};
-                    std::vector<double> max_iterations_values = {500, 1000, 2000};
+                    std::vector<double> learning_rate_values = {0.01, 0.001, 0.0001};  // Common learning rates
+                    std::vector<double> alpha_values = {0.01, 0.001};  // L2 regularization
+                    std::vector<int> max_iterations_values = {200, 500, 1000};  // Reasonable iteration limits
                     
                     // Create temporary model for grid search
                     NeuralNetwork tempModel;
-                    auto [best_layers, best_learning_rate, best_iterations] = 
-                        tempModel.gridSearch(X, y, layer_configs, learning_rate_values, max_iterations_values);
+                    auto [best_layers, best_learning_rate, best_alpha, best_iterations] = 
+                        tempModel.gridSearch(X, y, layer_configs, learning_rate_values, alpha_values, max_iterations_values);
                     
                     // Create model with best hyperparameters
-                    model_ = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations);
+                    model_ = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations, best_alpha);
                     
                     // Update UI values to reflect the best parameters
                     hidden_layers_ = best_layers.size();
                     if (!best_layers.empty()) {
-                        neurons_per_layer_ = best_layers[0]; // Simplification: use first layer size
+                        neurons_per_layer_ = best_layers[0]; // Use first layer size for UI
                     }
                     learning_rate_ = best_learning_rate;
                     max_iterations_ = best_iterations;
@@ -977,6 +1013,7 @@ void GUI::renderHyperparameters() {
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error training model!");
             }
+            isTraining = false;  // Reset training state when done
         }
     }
     
@@ -1149,7 +1186,6 @@ void GUI::renderPlotting() {
         selectedModelIndex_ = 0;
         selectedFeatures_.clear();
         selectedTargetIndices_.clear();
-        includeSeasonality_ = false;
         model_.reset();
         plotManager_->reset();
         predictions_ = Eigen::VectorXd();

@@ -341,6 +341,17 @@ void GUI::run() {
 }
 
 void GUI::setScreen(Screen screen) {
+    if (screen == Screen::FILE_BROWSER) {
+        // Reset all state when going back to file browser
+        selectedFilePath_.clear();
+        outliers_.clear();
+        selectedModelIndex_ = 0;
+        selectedFeatures_.clear();
+        selectedTargetIndices_.clear();
+        model_.reset();
+        plotManager_.reset();
+        predictions_ = Eigen::VectorXd();
+    }
     currentScreen_ = screen;
 }
 
@@ -432,7 +443,6 @@ void GUI::renderMainMenu() {
                 selectedModelIndex_ = 0;
                 selectedFeatures_.clear();
                 selectedTargetIndices_.clear();
-                includeSeasonality_ = false;
                 model_.reset();
                 plotManager_->reset();
                 predictions_ = Eigen::VectorXd();

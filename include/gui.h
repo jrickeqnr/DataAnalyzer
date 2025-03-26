@@ -48,6 +48,22 @@ enum class ExportType {
  */
 class GUI {
 public:
+    GUI() : currentScreen_(Screen::FILE_BROWSER),
+            selectedModelIndex_(0),
+            modelTrainingSuccess_(false),
+            modelIntercept_(0.0),
+            alpha_(0.5),
+            lambda_(1.0),
+            n_estimators_(100),
+            learning_rate_(0.1),
+            max_depth_(3),
+            min_samples_split_(2),
+            subsample_(1.0),
+            hidden_layers_(2),
+            neurons_per_layer_(10),
+            max_iterations_(1000),
+            autoHyperparameters_(false) {}
+    
     GUI(const std::string& title = "DataAnalyzer", int width = 1280, int height = 720);
     ~GUI();
     
@@ -74,6 +90,8 @@ public:
      */
     Screen getCurrentScreen() const;
 
+    void render();
+
 private:
     std::string title_;
     int width_;
@@ -92,7 +110,6 @@ private:
     int selectedModelIndex_ = 0;
     std::vector<size_t> selectedFeatures_;
     std::vector<size_t> selectedTargetIndices_;
-    bool includeSeasonality_ = false;
     
     // Model training results
     bool modelTrainingSuccess_ = false;
@@ -111,10 +128,11 @@ private:
     int n_estimators_ = 100;
     double learning_rate_ = 0.1;
     int max_depth_ = 3;
-    double subsample_ = 0.8;
+    int min_samples_split_ = 2;
+    double subsample_ = 1.0;
     
     // Neural Network
-    int hidden_layers_ = 1;
+    int hidden_layers_ = 2;
     int neurons_per_layer_ = 10;
     int max_iterations_ = 1000;
     

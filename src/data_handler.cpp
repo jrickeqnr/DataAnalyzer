@@ -36,7 +36,7 @@ std::optional<Date> Date::parse(const std::string& dateStr) {
         if (std::regex_search(dateStr, match, regex)) {
             std::string matchedDate = match[0];
             
-            int year, month, day;
+            int year = 0, month = 0, day = 0;
             
             // Parse based on format
             if (matchedDate.find('-') != std::string::npos) {
@@ -235,7 +235,7 @@ std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
     std::vector<size_t> columns = columnIndices.empty() ? numericColumnIndices_ : columnIndices;
     
     for (size_t col : columns) {
-        if (col >= numericData_.cols()) {
+        if (col >= static_cast<size_t>(numericData_.cols())) {
             continue;
         }
         
@@ -469,7 +469,7 @@ std::string DataHandler::getDataSummary() const {
         if (colIndex < columnNames_.size()) {
             ss << "Column [" << colIndex << "]: " << columnNames_[colIndex] << "\n";
             
-            if (numericData_.rows() > 0 && colIndex < numericData_.cols()) {
+            if (numericData_.rows() > 0 && colIndex < static_cast<size_t>(numericData_.cols())) {
                 Eigen::VectorXd col = numericData_.col(colIndex);
                 
                 double min = col.minCoeff();
@@ -573,7 +573,7 @@ bool DataHandler::parseNumericData() {
     int checkRows = std::min(numRows, 10);
     for (int i = 0; i < checkRows; ++i) {
         const auto& row = rawData_[i];
-        for (int j = 0; j < numCols && j < row.size(); ++j) {
+        for (int j = 0; j < numCols && j < static_cast<int>(row.size()); ++j) {
             if (isNumeric[j]) {
                 try {
                     // Try to convert to double
@@ -607,7 +607,7 @@ bool DataHandler::parseNumericData() {
         const auto& row = rawData_[i];
         for (size_t j = 0; j < numericColumnIndices_.size(); ++j) {
             int colIndex = numericColumnIndices_[j];
-            if (colIndex < row.size()) {
+            if (colIndex < static_cast<int>(row.size())) {
                 try {
                     numericData_(i, j) = std::stod(row[colIndex]);
                 } catch (...) {
@@ -649,7 +649,7 @@ bool DataHandler::parseDateColumns() {
         int dateParseCount = 0;
         
         for (int i = 0; i < checkRows; ++i) {
-            if (j < rawData_[i].size()) {
+            if (j < static_cast<int>(rawData_[i].size())) {
                 const std::string& cellValue = rawData_[i][j];
                 if (Date::parse(cellValue).has_value()) {
                     dateParseCount++;

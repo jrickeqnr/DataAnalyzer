@@ -12,32 +12,66 @@ bool LinearRegression::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y)
         return false;
     }
     
-    // Prepare data based on whether to fit intercept
-    Eigen::MatrixXd X_train;
-    if (fit_intercept_) {
-        // Add a column of ones for the intercept
-        X_train = Eigen::MatrixXd::Ones(X.rows(), X.cols() + 1);
-        X_train.rightCols(X.cols()) = X;
-    } else {
-        X_train = X;
+    try {
+        // Initialize progress
+        stats_["Training Progress"] = 0.0;
+        
+        // Standardize features
+        Eigen::VectorXd X_mean = X.colwise().mean();
+        Eigen::VectorXd X_std = ((X.rowwise() - X_mean.transpose()).array().square().colwise().sum() / X.rows()).sqrt();
+        
+        // Handle zero standard deviation
+        for (int i = 0; i < X_std.size(); ++i) {
+            if (X_std(i) < 1e-10) {
+                X_std(i) = 1.0;
+            }
+        }
+        
+        Eigen::MatrixXd X_scaled = (X.rowwise() - X_mean.transpose()).array().rowwise() / X_std.transpose().array();
+        
+        // Update progress
+        stats_["Training Progress"] = 0.25;
+        
+        // Add column of ones for intercept
+        Eigen::MatrixXd X_with_intercept = Eigen::MatrixXd::Ones(X.rows(), X.cols() + 1);
+        X_with_intercept.rightCols(X.cols()) = X_scaled;
+        
+        // Update progress
+        stats_["Training Progress"] = 0.5;
+        
+        // Solve normal equations
+        Eigen::VectorXd theta = (X_with_intercept.transpose() * X_with_intercept)
+                                .ldlt()
+                                .solve(X_with_intercept.transpose() * y);
+        
+        // Update progress
+        stats_["Training Progress"] = 0.75;
+        
+        // Extract intercept and coefficients
+        intercept_ = theta(0);
+        coefficients_ = theta.tail(X.cols());
+        
+        // Rescale coefficients back to original scale
+        for (int j = 0; j < X.cols(); ++j) {
+            coefficients_(j) /= X_std(j);
+        }
+        intercept_ = y.mean() - X_mean.dot(coefficients_);
+        
+        // Compute initial predictions and metrics
+        Eigen::VectorXd initial_predictions = predict(X);
+        double initial_rmse = std::sqrt((initial_predictions - y).array().square().mean());
+        stats_["Current RMSE"] = initial_rmse;
+        
+        // Compute final statistics
+        computeStats(X, y);
+        
+        // Update final progress
+        stats_["Training Progress"] = 1.0;
+        
+        return true;
+    } catch (const std::exception&) {
+        return false;
     }
-    
-    // Solve normal equations: (X^T * X)^(-1) * X^T * y
-    // Using QR decomposition for numerical stability
-    Eigen::VectorXd solution = X_train.colPivHouseholderQr().solve(y);
-    
-    if (fit_intercept_) {
-        intercept_ = solution(0);
-        coefficients_ = solution.tail(solution.size() - 1);
-    } else {
-        intercept_ = 0.0;
-        coefficients_ = solution;
-    }
-    
-    // Compute performance statistics
-    computeStats(X, y);
-    
-    return true;
 }
 
 Eigen::VectorXd LinearRegression::predict(const Eigen::MatrixXd& X) const {

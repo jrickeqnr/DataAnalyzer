@@ -172,20 +172,39 @@ std::map<std::string, double> NeuralNetwork::getHyperparameters() const {
     return hyperparams;
 }
 
-std::tuple<std::vector<int>, double, double> NeuralNetwork::gridSearch(
+std::tuple<std::vector<int>, double, double, int> NeuralNetwork::gridSearch(
     const Eigen::MatrixXd& X, 
     const Eigen::VectorXd& y,
     const std::vector<std::vector<int>>& hidden_layer_sizes_values,
     const std::vector<double>& learning_rate_values,
     const std::vector<double>& alpha_values,
+    const std::vector<int>& max_iterations_values,
     int k) {
     
     if (X.rows() != y.rows() || hidden_layer_sizes_values.empty() || 
-        learning_rate_values.empty() || alpha_values.empty() || k <= 1) {
-        return {hidden_layer_sizes_, learning_rate_, alpha_};
+        learning_rate_values.empty() || alpha_values.empty() || 
+        max_iterations_values.empty() || k <= 1) {
+        return {hidden_layer_sizes_, learning_rate_, alpha_, max_iter_};
     }
     
-    // Prepare k-fold cross-validation indices
+    // Standardize features
+    Eigen::MatrixXd X_std = X;
+    Eigen::VectorXd mean = X.colwise().mean();
+    Eigen::VectorXd std = ((X.rowwise() - mean.transpose()).array().square().colwise().sum() / (X.rows() - 1)).sqrt();
+    
+    for (int i = 0; i < X.cols(); ++i) {
+        if (std(i) > 1e-10) {  // Avoid division by zero
+            X_std.col(i) = (X.col(i).array() - mean(i)) / std(i);
+        }
+    }
+    
+    // Standardize target variable
+    double y_mean = y.mean();
+    double y_std = std::sqrt((y.array() - y_mean).square().sum() / (y.size() - 1));
+    Eigen::VectorXd y_std_vec = (y.array() - y_mean) / y_std;
+    
+    // Prepare k-fold cross-validation indices once
+    std::vector<std::vector<int>> fold_indices(k);
     std::vector<int> indices(X.rows());
     std::iota(indices.begin(), indices.end(), 0);
     
@@ -193,82 +212,164 @@ std::tuple<std::vector<int>, double, double> NeuralNetwork::gridSearch(
     std::mt19937 g(rd());
     std::shuffle(indices.begin(), indices.end(), g);
     
+    int fold_size = X.rows() / k;
+    for (int fold = 0; fold < k; ++fold) {
+        int start_idx = fold * fold_size;
+        int end_idx = (fold == k - 1) ? X.rows() : (fold + 1) * fold_size;
+        fold_indices[fold] = std::vector<int>(indices.begin() + start_idx, indices.begin() + end_idx);
+    }
+    
     // Best hyperparameters
     std::vector<int> best_hidden_layer_sizes = hidden_layer_sizes_;
     double best_learning_rate = learning_rate_;
     double best_alpha = alpha_;
+    int best_max_iterations = max_iter_;
     double best_rmse = std::numeric_limits<double>::max();
+    
+    // Grid search with progress tracking
+    int total_combinations = hidden_layer_sizes_values.size() * learning_rate_values.size() * 
+                           alpha_values.size() * max_iterations_values.size();
+    int current_combination = 0;
     
     // Grid search
     for (const auto& hidden_layer_sizes : hidden_layer_sizes_values) {
         for (double learning_rate : learning_rate_values) {
             for (double alpha : alpha_values) {
-                double fold_rmse_sum = 0.0;
-                
-                // K-fold cross-validation
-                for (int fold = 0; fold < k; ++fold) {
-                    // Split data into training and validation sets
-                    int fold_size = X.rows() / k;
-                    int start_idx = fold * fold_size;
-                    int end_idx = (fold == k - 1) ? X.rows() : (fold + 1) * fold_size;
+                for (int max_iterations : max_iterations_values) {
+                    current_combination++;
+                    double fold_rmse_sum = 0.0;
+                    bool early_stop = false;
+                    int valid_folds = 0;
                     
-                    // Create validation set
-                    std::vector<int> val_indices(indices.begin() + start_idx, indices.begin() + end_idx);
+                    // Update progress in stats
+                    stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
                     
-                    // Create training set (all indices not in validation set)
-                    std::vector<int> train_indices;
-                    for (int i = 0; i < X.rows(); ++i) {
-                        if (i < start_idx || i >= end_idx) {
-                            train_indices.push_back(i);
+                    // K-fold cross-validation
+                    for (int fold = 0; fold < k && !early_stop; ++fold) {
+                        // Create validation set
+                        const std::vector<int>& val_indices = fold_indices[fold];
+                        
+                        // Create training set
+                        std::vector<int> train_indices;
+                        train_indices.reserve(X.rows() - val_indices.size());
+                        for (int i = 0; i < k; ++i) {
+                            if (i != fold) {
+                                train_indices.insert(train_indices.end(), 
+                                                   fold_indices[i].begin(), 
+                                                   fold_indices[i].end());
+                            }
+                        }
+                        
+                        // Prepare train/val matrices
+                        Eigen::MatrixXd X_train(train_indices.size(), X_std.cols());
+                        Eigen::VectorXd y_train(train_indices.size());
+                        Eigen::MatrixXd X_val(val_indices.size(), X_std.cols());
+                        Eigen::VectorXd y_val(val_indices.size());
+                        
+                        for (size_t i = 0; i < train_indices.size(); ++i) {
+                            X_train.row(i) = X_std.row(train_indices[i]);
+                            y_train(i) = y_std_vec(train_indices[i]);
+                        }
+                        
+                        for (size_t i = 0; i < val_indices.size(); ++i) {
+                            X_val.row(i) = X_std.row(val_indices[i]);
+                            y_val(i) = y_std_vec(val_indices[i]);
+                        }
+                        
+                        try {
+                            // Train model with current hyperparameters
+                            NeuralNetwork model(hidden_layer_sizes, learning_rate, max_iterations, alpha);
+                            
+                            // Initialize weights with Xavier/Glorot initialization
+                            model.weights_.clear();
+                            model.biases_.clear();
+                            
+                            std::vector<int> layer_sizes;
+                            layer_sizes.push_back(X_train.cols());  // Input layer
+                            layer_sizes.insert(layer_sizes.end(), 
+                                            hidden_layer_sizes.begin(), 
+                                            hidden_layer_sizes.end());
+                            layer_sizes.push_back(1);  // Output layer
+                            
+                            std::random_device rd;
+                            std::mt19937 gen(rd());
+                            
+                            for (size_t i = 0; i < layer_sizes.size() - 1; ++i) {
+                                double limit = std::sqrt(6.0 / (layer_sizes[i] + layer_sizes[i + 1]));
+                                std::uniform_real_distribution<> dis(-limit, limit);
+                                
+                                Eigen::MatrixXd W = Eigen::MatrixXd::Zero(layer_sizes[i + 1], layer_sizes[i]);
+                                for (int r = 0; r < W.rows(); ++r) {
+                                    for (int c = 0; c < W.cols(); ++c) {
+                                        W(r, c) = dis(gen);
+                                    }
+                                }
+                                model.weights_.push_back(W);
+                                model.biases_.push_back(Eigen::VectorXd::Zero(layer_sizes[i + 1]));
+                            }
+                            
+                            if (!model.train(X_train, y_train)) {
+                                // If training fails, skip this combination
+                                early_stop = true;
+                                break;
+                            }
+                            
+                            // Evaluate on validation set
+                            Eigen::VectorXd predictions = model.predict(X_val);
+                            
+                            // Convert predictions and targets back to original scale
+                            predictions = predictions.array() * y_std + y_mean;
+                            Eigen::VectorXd y_val_orig = y_val.array() * y_std + y_mean;
+                            
+                            double fold_rmse = std::sqrt((predictions - y_val_orig).array().square().mean());
+                            
+                            // Check for numerical stability
+                            if (!std::isfinite(fold_rmse) || fold_rmse > 1e6) {
+                                early_stop = true;
+                                break;
+                            }
+                            
+                            // Early stopping if RMSE is much worse than best
+                            if (best_rmse < std::numeric_limits<double>::max() && 
+                                fold_rmse > 2.0 * best_rmse) {
+                                early_stop = true;
+                                break;
+                            }
+                            
+                            fold_rmse_sum += fold_rmse;
+                            valid_folds++;
+                            
+                        } catch (const std::exception&) {
+                            // If any exception occurs, skip this combination
+                            early_stop = true;
+                            break;
                         }
                     }
                     
-                    // Prepare train/val matrices
-                    Eigen::MatrixXd X_train(train_indices.size(), X.cols());
-                    Eigen::VectorXd y_train(train_indices.size());
-                    Eigen::MatrixXd X_val(val_indices.size(), X.cols());
-                    Eigen::VectorXd y_val(val_indices.size());
-                    
-                    for (size_t i = 0; i < train_indices.size(); ++i) {
-                        X_train.row(i) = X.row(train_indices[i]);
-                        y_train(i) = y(train_indices[i]);
+                    if (!early_stop && valid_folds > 0) {
+                        // Average RMSE across valid folds
+                        double avg_rmse = fold_rmse_sum / valid_folds;
+                        
+                        // Update best hyperparameters if RMSE is improved
+                        if (avg_rmse < best_rmse) {
+                            best_rmse = avg_rmse;
+                            best_hidden_layer_sizes = hidden_layer_sizes;
+                            best_learning_rate = learning_rate;
+                            best_alpha = alpha;
+                            best_max_iterations = max_iterations;
+                        }
                     }
-                    
-                    for (size_t i = 0; i < val_indices.size(); ++i) {
-                        X_val.row(i) = X.row(val_indices[i]);
-                        y_val(i) = y(val_indices[i]);
-                    }
-                    
-                    // Train model with current hyperparameters
-                    NeuralNetwork model(hidden_layer_sizes, learning_rate, max_iter_, alpha);
-                    model.train(X_train, y_train);
-                    
-                    // Evaluate on validation set
-                    Eigen::VectorXd predictions = model.predict(X_val);
-                    double fold_rmse = std::sqrt((predictions - y_val).array().square().mean());
-                    fold_rmse_sum += fold_rmse;
-                }
-                
-                // Average RMSE across all folds
-                double avg_rmse = fold_rmse_sum / k;
-                
-                // Update best hyperparameters if RMSE is improved
-                if (avg_rmse < best_rmse) {
-                    best_rmse = avg_rmse;
-                    best_hidden_layer_sizes = hidden_layer_sizes;
-                    best_learning_rate = learning_rate;
-                    best_alpha = alpha;
                 }
             }
         }
     }
     
-    return {best_hidden_layer_sizes, best_learning_rate, best_alpha};
+    return {best_hidden_layer_sizes, best_learning_rate, best_alpha, best_max_iterations};
 }
 
 void NeuralNetwork::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
-    int n = X.rows();
+    // int n = X.rows(); // Unused variable
     
     // Calculate prediction errors
     Eigen::VectorXd residuals = y - predictions;

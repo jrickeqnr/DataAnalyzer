@@ -217,27 +217,23 @@ public:
      * @param n_estimators_values Vector of n_estimators values to try
      * @param learning_rate_values Vector of learning_rate values to try
      * @param max_depth_values Vector of max_depth values to try
+     * @param subsample_values Vector of subsample values to try
      * @param k Number of folds for cross-validation
-     * @return std::tuple<int, double, int> Best (n_estimators, learning_rate, max_depth) tuple
+     * @return std::tuple<int, double, int, double> Best (n_estimators, learning_rate, max_depth, subsample) tuple
      */
-    std::tuple<int, double, int> gridSearch(
+    std::tuple<int, double, int, double> gridSearch(
         const Eigen::MatrixXd& X, 
         const Eigen::VectorXd& y,
         const std::vector<int>& n_estimators_values,
         const std::vector<double>& learning_rate_values,
         const std::vector<int>& max_depth_values,
+        const std::vector<double>& subsample_values,
         int k = 5);
 
     bool hasFeatureImportance() const override { return true; }
     Eigen::VectorXd getFeatureImportance() const override;
 
 private:
-    // Hyperparameters
-    int n_estimators_;        // Number of boosting rounds
-    double learning_rate_;    // Step size shrinkage
-    int max_depth_;           // Maximum depth of a tree
-    double subsample_;        // Subsample ratio
-    
     // Internal model representation
     struct Tree {
         std::vector<int> feature_indices;
@@ -246,12 +242,21 @@ private:
         std::vector<int> left_children;
         std::vector<int> right_children;
     };
-    std::vector<Tree> trees_;
+
+    // Hyperparameters
+    int n_estimators_;        // Number of boosting rounds
+    double learning_rate_;    // Step size shrinkage
+    int max_depth_;          // Maximum depth of a tree
+    double subsample_;       // Subsample ratio of training instances
+    
+    // Model state
+    std::vector<Tree> trees_;  // Collection of trees
+    double base_prediction_;   // Initial prediction (mean of target values)
+    double rmse_;             // Root mean squared error
+    double r_squared_;        // R-squared score
     
     // Statistics
-    double rmse_;       // Root Mean Squared Error
-    double r_squared_;  // R-squared
-    std::map<std::string, double> stats_; // Model statistics
+    std::map<std::string, double> stats_;
     
     // Private helper methods
     void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
@@ -293,71 +298,74 @@ public:
      * @param n_estimators_values Vector of n_estimators values to try
      * @param learning_rate_values Vector of learning_rate values to try
      * @param max_depth_values Vector of max_depth values to try
+     * @param min_samples_split_values Vector of min_samples_split values to try
      * @param k Number of folds for cross-validation
-     * @return std::tuple<int, double, int> Best (n_estimators, learning_rate, max_depth) tuple
+     * @return std::tuple<int, double, int, int> Best (n_estimators, learning_rate, max_depth, min_samples_split) tuple
      */
-    std::tuple<int, double, int> gridSearch(
+    std::tuple<int, double, int, int> gridSearch(
         const Eigen::MatrixXd& X, 
         const Eigen::VectorXd& y,
         const std::vector<int>& n_estimators_values,
         const std::vector<double>& learning_rate_values,
         const std::vector<int>& max_depth_values,
+        const std::vector<int>& min_samples_split_values,
         int k = 5);
 
     bool hasFeatureImportance() const override { return true; }
     Eigen::VectorXd getFeatureImportance() const override;
 
 private:
-    // Hyperparameters
-    int n_estimators_;         // Number of boosting stages
-    double learning_rate_;     // Learning rate
-    int max_depth_;            // Maximum depth of the individual regression estimators
-    int min_samples_split_;    // Minimum number of samples required to split an internal node
-    
-    // Internal model representation
-    struct DecisionTree {
-        struct Node {
-            int feature_idx;
-            double threshold;
-            double value;
-            int left_child;
-            int right_child;
-            bool is_leaf;
-            
-            Node() : feature_idx(-1), threshold(0.0), value(0.0), 
-                     left_child(-1), right_child(-1), is_leaf(true) {}
-        };
+    struct Node {
+        bool is_leaf;
+        int feature_idx;
+        double threshold;
+        double value;
+        int left_child;
+        int right_child;
         
+        Node() : is_leaf(true), feature_idx(-1), threshold(0.0), value(0.0),
+                 left_child(-1), right_child(-1) {}
+    };
+    
+    struct DecisionTree {
         std::vector<Node> nodes;
         
-        double predict(const Eigen::VectorXd& x, int node_idx = 0) const {
-            const Node& node = nodes[node_idx];
-            if (node.is_leaf) {
-                return node.value;
+        double predict(const Eigen::VectorXd& x) const {
+            int current_node = 0;
+            while (!nodes[current_node].is_leaf) {
+                if (x(nodes[current_node].feature_idx) <= nodes[current_node].threshold) {
+                    current_node = nodes[current_node].left_child;
+                } else {
+                    current_node = nodes[current_node].right_child;
+                }
             }
-            
-            if (x(node.feature_idx) <= node.threshold) {
-                return predict(x, node.left_child);
-            } else {
-                return predict(x, node.right_child);
-            }
+            return nodes[current_node].value;
         }
     };
     
-    std::vector<DecisionTree> trees_;
+    int n_estimators_;
+    double learning_rate_;
+    int max_depth_;
+    int min_samples_split_;
     double initial_prediction_;
+    std::vector<DecisionTree> trees_;
+    std::map<std::string, double> stats_;
+    double rmse_;
+    double r_squared_;
     
-    // Statistics
-    double rmse_;       // Root Mean Squared Error
-    double r_squared_;  // R-squared
-    std::map<std::string, double> stats_; // Model statistics
+    // Feature standardization parameters
+    Eigen::VectorXd feature_means_;
+    Eigen::VectorXd feature_stds_;
     
-    // Private helper methods
-    void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
+    // Target standardization parameters
+    double target_mean_;
+    double target_std_;
+    
     DecisionTree buildTree(const Eigen::MatrixXd& X, const Eigen::VectorXd& y, int depth);
     void buildTreeRecursive(const Eigen::MatrixXd& X, const Eigen::VectorXd& y, 
-                           int node_idx, int depth, DecisionTree& tree, 
+                           int node_idx, int depth, DecisionTree& tree,
                            const std::vector<int>& sample_indices, int current_depth);
+    void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
 };
 
 /**
@@ -393,15 +401,17 @@ public:
      * @param hidden_layer_sizes_values Vector of hidden_layer_sizes configurations to try
      * @param learning_rate_values Vector of learning_rate values to try
      * @param alpha_values Vector of alpha values to try
+     * @param max_iterations_values Vector of max_iterations values to try
      * @param k Number of folds for cross-validation
-     * @return std::tuple<std::vector<int>, double, double> Best hyperparameters tuple
+     * @return std::tuple<std::vector<int>, double, double, int> Best (hidden_layer_sizes, learning_rate, alpha, max_iterations) tuple
      */
-    std::tuple<std::vector<int>, double, double> gridSearch(
+    std::tuple<std::vector<int>, double, double, int> gridSearch(
         const Eigen::MatrixXd& X, 
         const Eigen::VectorXd& y,
         const std::vector<std::vector<int>>& hidden_layer_sizes_values,
         const std::vector<double>& learning_rate_values,
         const std::vector<double>& alpha_values,
+        const std::vector<int>& max_iterations_values,
         int k = 5);
 
     bool hasFeatureImportance() const override { return true; }

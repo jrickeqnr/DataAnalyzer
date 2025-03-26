@@ -10,7 +10,7 @@ namespace DataAnalyzer {
 
 XGBoost::XGBoost(int n_estimators, double learning_rate, int max_depth, double subsample)
     : n_estimators_(n_estimators), learning_rate_(learning_rate), max_depth_(max_depth),
-      subsample_(subsample), rmse_(0.0), r_squared_(0.0) {
+      subsample_(subsample), base_prediction_(0.0), rmse_(0.0), r_squared_(0.0) {
 }
 
 bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
@@ -31,11 +31,11 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd y_train = y;
     
     // Initial prediction is the mean of the target values
-    double initial_prediction = y_train.mean();
+    base_prediction_ = y_train.mean();
     
-    // Initialize residuals
-    Eigen::VectorXd residuals = y_train - Eigen::VectorXd::Constant(y_train.size(), initial_prediction);
-    Eigen::VectorXd predictions = Eigen::VectorXd::Constant(y_train.size(), initial_prediction);
+    // Initialize residuals and predictions
+    Eigen::VectorXd residuals = y_train - Eigen::VectorXd::Constant(y_train.size(), base_prediction_);
+    Eigen::VectorXd predictions = Eigen::VectorXd::Constant(y_train.size(), base_prediction_);
     
     // Build boosting rounds
     for (int i = 0; i < n_estimators_; ++i) {
@@ -82,15 +82,8 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
 }
 
 Eigen::VectorXd XGBoost::predict(const Eigen::MatrixXd& X) const {
-    Eigen::VectorXd predictions = Eigen::VectorXd::Constant(X.rows(), 0.0);
-    
-    // Initial prediction is the mean of the target values (should be stored but approximated here)
-    double initial_prediction = 0.0;
-    if (!trees_.empty()) {
-        initial_prediction = trees_[0].values[0]; // Approximate
-    }
-    
-    predictions.setConstant(initial_prediction);
+    // Initialize predictions with base prediction
+    Eigen::VectorXd predictions = Eigen::VectorXd::Constant(X.rows(), base_prediction_);
     
     // Sum up the predictions from each tree
     for (const auto& tree : trees_) {
@@ -129,20 +122,34 @@ std::map<std::string, double> XGBoost::getHyperparameters() const {
     };
 }
 
-std::tuple<int, double, int> XGBoost::gridSearch(
+std::tuple<int, double, int, double> XGBoost::gridSearch(
     const Eigen::MatrixXd& X, 
     const Eigen::VectorXd& y,
     const std::vector<int>& n_estimators_values,
     const std::vector<double>& learning_rate_values,
     const std::vector<int>& max_depth_values,
+    const std::vector<double>& subsample_values,
     int k) {
     
     if (X.rows() != y.rows() || n_estimators_values.empty() || 
-        learning_rate_values.empty() || max_depth_values.empty() || k <= 1) {
-        return {n_estimators_, learning_rate_, max_depth_};
+        learning_rate_values.empty() || max_depth_values.empty() || 
+        subsample_values.empty() || k <= 1) {
+        return {n_estimators_, learning_rate_, max_depth_, subsample_};
     }
     
-    // Prepare k-fold cross-validation indices
+    // Standardize features
+    Eigen::MatrixXd X_std = X;
+    Eigen::VectorXd mean = X.colwise().mean();
+    Eigen::VectorXd std = ((X.rowwise() - mean.transpose()).array().square().colwise().sum() / (X.rows() - 1)).sqrt();
+    
+    for (int i = 0; i < X.cols(); ++i) {
+        if (std(i) > 1e-10) {  // Avoid division by zero
+            X_std.col(i) = (X.col(i).array() - mean(i)) / std(i);
+        }
+    }
+    
+    // Prepare k-fold cross-validation indices once
+    std::vector<std::vector<int>> fold_indices(k);
     std::vector<int> indices(X.rows());
     std::iota(indices.begin(), indices.end(), 0);
     
@@ -150,82 +157,121 @@ std::tuple<int, double, int> XGBoost::gridSearch(
     std::mt19937 g(rd());
     std::shuffle(indices.begin(), indices.end(), g);
     
+    int fold_size = X.rows() / k;
+    for (int fold = 0; fold < k; ++fold) {
+        int start_idx = fold * fold_size;
+        int end_idx = (fold == k - 1) ? X.rows() : (fold + 1) * fold_size;
+        fold_indices[fold] = std::vector<int>(indices.begin() + start_idx, indices.begin() + end_idx);
+    }
+    
     // Best hyperparameters
     int best_n_estimators = n_estimators_;
     double best_learning_rate = learning_rate_;
     int best_max_depth = max_depth_;
+    double best_subsample = subsample_;
     double best_rmse = std::numeric_limits<double>::max();
+    
+    // Grid search with progress tracking
+    int total_combinations = n_estimators_values.size() * learning_rate_values.size() * 
+                           max_depth_values.size() * subsample_values.size();
+    int current_combination = 0;
     
     // Grid search
     for (int n_estimators : n_estimators_values) {
         for (double learning_rate : learning_rate_values) {
             for (int max_depth : max_depth_values) {
-                double fold_rmse_sum = 0.0;
-                
-                // K-fold cross-validation
-                for (int fold = 0; fold < k; ++fold) {
-                    // Split data into training and validation sets
-                    int fold_size = X.rows() / k;
-                    int start_idx = fold * fold_size;
-                    int end_idx = (fold == k - 1) ? X.rows() : (fold + 1) * fold_size;
+                for (double subsample : subsample_values) {
+                    current_combination++;
+                    double fold_rmse_sum = 0.0;
+                    bool early_stop = false;
                     
-                    // Create validation set
-                    std::vector<int> val_indices(indices.begin() + start_idx, indices.begin() + end_idx);
+                    // Update progress in stats
+                    stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
                     
-                    // Create training set (all indices not in validation set)
-                    std::vector<int> train_indices;
-                    for (int i = 0; i < X.rows(); ++i) {
-                        if (i < start_idx || i >= end_idx) {
-                            train_indices.push_back(i);
+                    // K-fold cross-validation
+                    for (int fold = 0; fold < k && !early_stop; ++fold) {
+                        // Create validation set
+                        const std::vector<int>& val_indices = fold_indices[fold];
+                        
+                        // Create training set
+                        std::vector<int> train_indices;
+                        train_indices.reserve(X.rows() - val_indices.size());
+                        for (int i = 0; i < k; ++i) {
+                            if (i != fold) {
+                                train_indices.insert(train_indices.end(), 
+                                                   fold_indices[i].begin(), 
+                                                   fold_indices[i].end());
+                            }
+                        }
+                        
+                        // Prepare train/val matrices
+                        Eigen::MatrixXd X_train(train_indices.size(), X_std.cols());
+                        Eigen::VectorXd y_train(train_indices.size());
+                        Eigen::MatrixXd X_val(val_indices.size(), X_std.cols());
+                        Eigen::VectorXd y_val(val_indices.size());
+                        
+                        for (size_t i = 0; i < train_indices.size(); ++i) {
+                            X_train.row(i) = X_std.row(train_indices[i]);
+                            y_train(i) = y(train_indices[i]);
+                        }
+                        
+                        for (size_t i = 0; i < val_indices.size(); ++i) {
+                            X_val.row(i) = X_std.row(val_indices[i]);
+                            y_val(i) = y(val_indices[i]);
+                        }
+                        
+                        // Train model with current hyperparameters
+                        XGBoost model(n_estimators, learning_rate, max_depth, subsample);
+                        
+                        try {
+                            if (!model.train(X_train, y_train)) {
+                                // If training fails, skip this combination
+                                early_stop = true;
+                                break;
+                            }
+                            
+                            // Evaluate on validation set
+                            Eigen::VectorXd predictions = model.predict(X_val);
+                            double fold_rmse = std::sqrt((predictions - y_val).array().square().mean());
+                            
+                            // Early stopping if RMSE is much worse than best
+                            if (fold_rmse > 2.0 * best_rmse) {
+                                early_stop = true;
+                                break;
+                            }
+                            
+                            fold_rmse_sum += fold_rmse;
+                        } catch (const std::exception&) {
+                            // If any exception occurs, skip this combination
+                            early_stop = true;
+                            break;
                         }
                     }
                     
-                    // Prepare train/val matrices
-                    Eigen::MatrixXd X_train(train_indices.size(), X.cols());
-                    Eigen::VectorXd y_train(train_indices.size());
-                    Eigen::MatrixXd X_val(val_indices.size(), X.cols());
-                    Eigen::VectorXd y_val(val_indices.size());
-                    
-                    for (size_t i = 0; i < train_indices.size(); ++i) {
-                        X_train.row(i) = X.row(train_indices[i]);
-                        y_train(i) = y(train_indices[i]);
+                    if (!early_stop) {
+                        // Average RMSE across all folds
+                        double avg_rmse = fold_rmse_sum / k;
+                        
+                        // Update best hyperparameters if RMSE is improved
+                        if (avg_rmse < best_rmse) {
+                            best_rmse = avg_rmse;
+                            best_n_estimators = n_estimators;
+                            best_learning_rate = learning_rate;
+                            best_max_depth = max_depth;
+                            best_subsample = subsample;
+                        }
                     }
-                    
-                    for (size_t i = 0; i < val_indices.size(); ++i) {
-                        X_val.row(i) = X.row(val_indices[i]);
-                        y_val(i) = y(val_indices[i]);
-                    }
-                    
-                    // Train model with current hyperparameters
-                    XGBoost model(n_estimators, learning_rate, max_depth, subsample_);
-                    model.train(X_train, y_train);
-                    
-                    // Evaluate on validation set
-                    Eigen::VectorXd predictions = model.predict(X_val);
-                    double fold_rmse = std::sqrt((predictions - y_val).array().square().mean());
-                    fold_rmse_sum += fold_rmse;
-                }
-                
-                // Average RMSE across all folds
-                double avg_rmse = fold_rmse_sum / k;
-                
-                // Update best hyperparameters if RMSE is improved
-                if (avg_rmse < best_rmse) {
-                    best_rmse = avg_rmse;
-                    best_n_estimators = n_estimators;
-                    best_learning_rate = learning_rate;
-                    best_max_depth = max_depth;
                 }
             }
         }
     }
     
-    return {best_n_estimators, best_learning_rate, best_max_depth};
+    return {best_n_estimators, best_learning_rate, best_max_depth, best_subsample};
 }
 
 void XGBoost::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
-    int n = X.rows();
+    // int n = X.rows(); // Unused variable
     
     // Calculate prediction errors
     Eigen::VectorXd residuals = y - predictions;
