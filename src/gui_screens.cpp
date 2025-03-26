@@ -89,13 +89,45 @@ void GUI::renderOutlierDetection() {
     ImGui::Spacing();
     
     static bool detectPressed = false;
+    static bool showOutlierPopup = false;
+    static std::string popupMessage;
+    static int totalOutliers = 0;
     
     if (!detectPressed) {
         if (ImGui::Button("Detect Outliers", ImVec2(150, 0))) {
             // Detect outliers in all numeric columns
             outliers_ = dataHandler_.detectOutliers();
             detectPressed = true;
+            
+            // Calculate total outliers and prepare popup
+            totalOutliers = 0;
+            for (const auto& [col, rows] : outliers_) {
+                totalOutliers += rows.size();
+            }
+            
+            if (totalOutliers > 0) {
+                popupMessage = "Found " + std::to_string(totalOutliers) + " outliers in the data.\nCheck the details below for more information.";
+            } else {
+                popupMessage = "No outliers were detected in the data.";
+            }
+            showOutlierPopup = true;
         }
+    }
+    
+    // Render popup outside of the button click handler
+    if (showOutlierPopup) {
+        ImGui::OpenPopup("Outlier Detection Results");
+        showOutlierPopup = false;
+    }
+    
+    // Always render the popup window
+    if (ImGui::BeginPopupModal("Outlier Detection Results", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("%s", popupMessage.c_str());
+        ImGui::Separator();
+        if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
     
     // Show results if detection has been performed
@@ -104,6 +136,14 @@ void GUI::renderOutlierDetection() {
         ImGui::Spacing();
         
         const std::vector<std::string>& columnNames = dataHandler_.getColumnNames();
+        const std::vector<Date>& dates = dataHandler_.getDates();
+        static bool outlierFixed = false;
+        static Eigen::MatrixXd originalData;
+        
+        // Store original data before fixing
+        if (!outlierFixed) {
+            originalData = dataHandler_.getData();
+        }
         
         for (const auto& [col, rows] : outliers_) {
             if (col < columnNames.size()) {
@@ -111,13 +151,51 @@ void GUI::renderOutlierDetection() {
                 
                 if (ImGui::TreeNode(("Details##" + std::to_string(col)).c_str())) {
                     ImGui::Indent(20.0f);
-                    ImGui::Text("Row indices: ");
-                    std::string indices;
-                    for (size_t i = 0; i < rows.size(); ++i) {
-                        indices += std::to_string(rows[i]);
-                        if (i < rows.size() - 1) indices += ", ";
+                    ImGui::Text("Outliers:");
+                    
+                    // Create a table for outlier details
+                    if (ImGui::BeginTable(("OutliersTable##" + std::to_string(col)).c_str(), outlierFixed ? 3 : 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Date");
+                        ImGui::TableSetupColumn(outlierFixed ? "Original Value" : "Value");
+                        if (outlierFixed) {
+                            ImGui::TableSetupColumn("Fixed Value");
+                        }
+                        ImGui::TableHeadersRow();
+                        
+                        for (size_t row : rows) {
+                            ImGui::TableNextRow();
+                            
+                            // Date column
+                            ImGui::TableSetColumnIndex(0);
+                            if (row < dates.size()) {
+                                ImGui::Text("%s", dates[row].toString().c_str());
+                            } else {
+                                ImGui::Text("Unknown Date");
+                            }
+                            
+                            // Value column
+                            ImGui::TableSetColumnIndex(1);
+                            if (row < static_cast<size_t>(originalData.rows()) && col < static_cast<size_t>(originalData.cols())) {
+                                ImGui::Text("%.2f", originalData(row, col));
+                            } else {
+                                ImGui::Text("Invalid Value");
+                            }
+                            
+                            // Fixed value column (only shown after fixing)
+                            if (outlierFixed) {
+                                ImGui::TableSetColumnIndex(2);
+                                if (row < static_cast<size_t>(dataHandler_.getData().rows()) && col < static_cast<size_t>(dataHandler_.getData().cols())) {
+                                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+                                    ImGui::Text("%.2f", dataHandler_.getData()(row, col));
+                                    ImGui::PopStyleColor();
+                                } else {
+                                    ImGui::Text("Invalid Value");
+                                }
+                            }
+                        }
+                        ImGui::EndTable();
                     }
-                    ImGui::TextWrapped("%s", indices.c_str());
+                    
                     ImGui::Unindent(20.0f);
                     ImGui::TreePop();
                 }
@@ -125,13 +203,14 @@ void GUI::renderOutlierDetection() {
         }
         
         ImGui::Spacing();
-        if (ImGui::Button("Fix Outliers", ImVec2(150, 0))) {
-            if (dataHandler_.fixOutliers(outliers_)) {
-                showSuccessPopup("Outliers fixed successfully!");
-                outliers_.clear();
-                detectPressed = false;
-            } else {
-                showErrorPopup("Failed to fix outliers!");
+        if (!outlierFixed) {
+            if (ImGui::Button("Fix Outliers", ImVec2(150, 0))) {
+                if (dataHandler_.fixOutliers(outliers_)) {
+                    showSuccessPopup("Outliers fixed successfully!");
+                    outlierFixed = true;
+                } else {
+                    showErrorPopup("Failed to fix outliers!");
+                }
             }
         }
     }

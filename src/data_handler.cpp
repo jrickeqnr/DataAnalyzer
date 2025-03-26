@@ -239,18 +239,47 @@ std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
             continue;
         }
         
-        // Extract the column data
+        // Extract the column data and filter out NaN values
         Eigen::VectorXd column = numericData_.col(col);
+        std::vector<double> valid_values;
+        valid_values.reserve(column.size());
+        for (int i = 0; i < column.size(); ++i) {
+            if (!std::isnan(column(i))) {
+                valid_values.push_back(column(i));
+            }
+        }
         
-        // Calculate quartiles using a sorted copy of the data
-        std::vector<double> sorted(column.data(), column.data() + column.size());
-        std::sort(sorted.begin(), sorted.end());
+        // Skip if not enough valid values
+        if (valid_values.size() < 4) { // Need at least 4 points for meaningful quartiles
+            continue;
+        }
         
-        // Get Q1 (25th percentile)
-        double q1 = sorted[sorted.size() * 0.25];
+        // Calculate quartiles using valid values
+        std::sort(valid_values.begin(), valid_values.end());
         
-        // Get Q3 (75th percentile)
-        double q3 = sorted[sorted.size() * 0.75];
+        // Calculate quartile indices with interpolation
+        double q1_idx = (valid_values.size() - 1) * 0.25;
+        double q3_idx = (valid_values.size() - 1) * 0.75;
+        
+        // Get Q1 (25th percentile) with interpolation
+        double q1;
+        if (q1_idx == floor(q1_idx)) {
+            q1 = valid_values[static_cast<size_t>(q1_idx)];
+        } else {
+            size_t idx_low = static_cast<size_t>(floor(q1_idx));
+            size_t idx_high = static_cast<size_t>(ceil(q1_idx));
+            q1 = valid_values[idx_low] + (q1_idx - floor(q1_idx)) * (valid_values[idx_high] - valid_values[idx_low]);
+        }
+        
+        // Get Q3 (75th percentile) with interpolation
+        double q3;
+        if (q3_idx == floor(q3_idx)) {
+            q3 = valid_values[static_cast<size_t>(q3_idx)];
+        } else {
+            size_t idx_low = static_cast<size_t>(floor(q3_idx));
+            size_t idx_high = static_cast<size_t>(ceil(q3_idx));
+            q3 = valid_values[idx_low] + (q3_idx - floor(q3_idx)) * (valid_values[idx_high] - valid_values[idx_low]);
+        }
         
         // Calculate IQR (Interquartile Range)
         double iqr = q3 - q1;
@@ -259,10 +288,10 @@ std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
         double lowerBound = q1 - 1.5 * iqr;
         double upperBound = q3 + 1.5 * iqr;
         
-        // Find outliers
+        // Find outliers (excluding NaN values)
         std::vector<size_t> colOutliers;
         for (int i = 0; i < column.size(); ++i) {
-            if (column(i) < lowerBound || column(i) > upperBound) {
+            if (!std::isnan(column(i)) && (column(i) < lowerBound || column(i) > upperBound)) {
                 colOutliers.push_back(i);
             }
         }
@@ -608,11 +637,18 @@ bool DataHandler::parseNumericData() {
         for (size_t j = 0; j < numericColumnIndices_.size(); ++j) {
             int colIndex = numericColumnIndices_[j];
             if (colIndex < static_cast<int>(row.size())) {
-                try {
-                    numericData_(i, j) = std::stod(row[colIndex]);
-                } catch (...) {
-                    numericData_(i, j) = 0.0; // Default for non-numeric values
+                const std::string& value = row[colIndex];
+                if (value.empty() || value == "NA" || value == "N/A" || value == "null" || value == "NULL") {
+                    numericData_(i, j) = std::numeric_limits<double>::quiet_NaN();
+                } else {
+                    try {
+                        numericData_(i, j) = std::stod(value);
+                    } catch (...) {
+                        numericData_(i, j) = std::numeric_limits<double>::quiet_NaN();
+                    }
                 }
+            } else {
+                numericData_(i, j) = std::numeric_limits<double>::quiet_NaN();
             }
         }
     }
