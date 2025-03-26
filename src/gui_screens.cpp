@@ -98,14 +98,97 @@ void GUI::renderOutlierDetection() {
         }
     }
     
+    // Show results if detection has been performed
+    if (detectPressed) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Text("Outlier Detection Results:");
+        
+        int totalOutliers = 0;
+        for (const auto& [col, rows] : outliers_) {
+            totalOutliers += rows.size();
+        }
+        
+        if (totalOutliers == 0) {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "No outliers detected in the data!");
+        } else {
+            ImGui::Text("Total outliers found: %d", totalOutliers);
+            
+            // Display outliers by column
+            std::vector<std::string> columnNames = dataHandler_.getColumnNames();
+            std::vector<size_t> numericIndices = dataHandler_.getNumericColumnIndices();
+            
+            if (ImGui::BeginTable("OutliersTable", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                ImGui::TableSetupColumn("Column");
+                ImGui::TableSetupColumn("# Outliers");
+                ImGui::TableSetupColumn("Example Rows");
+                ImGui::TableHeadersRow();
+                
+                for (const auto& [col, rows] : outliers_) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    
+                    // Find the column name
+                    std::string colName = "Unknown";
+                    if (col < numericIndices.size()) {
+                        size_t colIdx = numericIndices[col];
+                        if (colIdx < columnNames.size()) {
+                            colName = columnNames[colIdx];
+                        }
+                    }
+                    
+                    ImGui::Text("%s", colName.c_str());
+                    
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%zu", rows.size());
+                    
+                    ImGui::TableSetColumnIndex(2);
+                    // Show a few example row indices
+                    std::string rowsStr;
+                    for (size_t i = 0; i < std::min(rows.size(), size_t(5)); ++i) {
+                        rowsStr += std::to_string(rows[i]);
+                        if (i < std::min(rows.size(), size_t(5)) - 1) {
+                            rowsStr += ", ";
+                        }
+                    }
+                    if (rows.size() > 5) {
+                        rowsStr += "...";
+                    }
+                    ImGui::Text("%s", rowsStr.c_str());
+                }
+                
+                ImGui::EndTable();
+            }
+            
+            ImGui::Spacing();
+            if (ImGui::Button("Fix Outliers", ImVec2(120, 0))) {
+                // Fix outliers by interpolating with previous/next values
+                if (dataHandler_.fixOutliers(outliers_)) {
+                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Outliers fixed successfully!");
+                    detectPressed = false; // Reset detection state
+                } else {
+                    ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error fixing outliers!");
+                }
+            }
+            
+            ImGui::SameLine();
+            if (ImGui::Button("Skip (Keep Outliers)", ImVec2(200, 0))) {
+                // Keep outliers and proceed to the next screen
+                ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Keeping outliers in the data.");
+            }
+        }
+    }
+    
     // Navigation buttons
     ImGui::Spacing();
     if (ImGui::Button("Back: File Browser", ImVec2(200, 0))) {
+        detectPressed = false; // Reset detection state when navigating away
         setScreen(Screen::FILE_BROWSER);
     }
     
     ImGui::SameLine();
     if (ImGui::Button("Next: Model Selection", ImVec2(200, 0))) {
+        detectPressed = false; // Reset detection state when navigating away
         setScreen(Screen::MODEL_SELECTION);
     }
 }
