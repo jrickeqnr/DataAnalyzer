@@ -71,7 +71,7 @@ private:
     // Data and model
     DataHandler dataHandler_;
     std::shared_ptr<Model> model_;
-    std::shared_ptr<TimeSeries> plot_;
+    std::shared_ptr<PlotManager> plotManager_;
     
     // State variables for each screen
     std::string selectedFilePath_;

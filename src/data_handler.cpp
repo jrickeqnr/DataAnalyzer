@@ -281,12 +281,12 @@ bool DataHandler::fixOutliers(const std::map<size_t, std::vector<size_t>>& outli
     }
     
     for (const auto& [col, rows] : outliers) {
-        if (col >= numericData_.cols()) {
+        if (static_cast<Eigen::Index>(col) >= numericData_.cols()) {
             continue;
         }
         
         for (size_t row : rows) {
-            if (row >= numericData_.rows()) {
+            if (static_cast<Eigen::Index>(row) >= numericData_.rows()) {
                 continue;
             }
             
@@ -363,7 +363,7 @@ bool DataHandler::fixOutliers(const std::map<size_t, std::vector<size_t>>& outli
     return true;
 }
 
-bool DataHandler::addSeasonalFeatures(size_t dateColumnIndex) {
+bool DataHandler::addSeasonalFeatures([[maybe_unused]] size_t dateColumnIndex) {
     if (dates_.empty() || frequency_ == Frequency::UNKNOWN) {
         return false;
     }
@@ -505,34 +505,23 @@ std::vector<Date> DataHandler::getDates() const {
 
 Eigen::MatrixXd DataHandler::getSelectedFeatures(const std::vector<size_t>& featureIndices) const {
     if (featureIndices.empty() || numericData_.rows() == 0) {
-        return Eigen::MatrixXd(0, 0);
+        return Eigen::MatrixXd();
     }
     
-    // Create a matrix with rows = number of samples, cols = number of selected features
-    Eigen::MatrixXd selectedFeatures(numericData_.rows(), featureIndices.size());
-    
-    // Copy the selected columns
-    for (size_t i = 0; i < featureIndices.size(); ++i) {
-        size_t colIdx = featureIndices[i];
-        // Ensure the column index is valid
-        if (colIdx < static_cast<size_t>(numericData_.cols())) {
-            selectedFeatures.col(i) = numericData_.col(colIdx);
-        } else {
-            // If invalid column index, fill with zeros
-            selectedFeatures.col(i).setZero();
+    Eigen::MatrixXd features(numericData_.rows(), featureIndices.size());
+    for (Eigen::Index i = 0; i < static_cast<Eigen::Index>(featureIndices.size()); ++i) {
+        if (static_cast<Eigen::Index>(featureIndices[i]) < numericData_.cols()) {
+            features.col(i) = numericData_.col(featureIndices[i]);
         }
     }
-    
-    return selectedFeatures;
+    return features;
 }
 
 Eigen::VectorXd DataHandler::getSelectedTarget(size_t targetIndex) const {
-    if (numericData_.rows() == 0 || targetIndex >= static_cast<size_t>(numericData_.cols())) {
-        return Eigen::VectorXd(0);
+    if (static_cast<Eigen::Index>(targetIndex) < numericData_.cols()) {
+        return numericData_.col(targetIndex);
     }
-    
-    // Extract the target column
-    return numericData_.col(targetIndex);
+    return Eigen::VectorXd();
 }
 
 bool DataHandler::exportToCSV(const std::string& filepath) const {

@@ -1,7 +1,7 @@
 #include "../include/gui.h"
 #include <iostream>
 
-int main(int argc, char** argv) {
+int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     try {
         // Create the application
         DataAnalyzer::GUI app("DataAnalyzer");

@@ -370,4 +370,24 @@ double NeuralNetwork::reluDerivative(double x) const {
     return x > 0.0 ? 1.0 : 0.0;
 }
 
+Eigen::VectorXd NeuralNetwork::getFeatureImportance() const {
+    // For neural networks, we can approximate feature importance
+    // by looking at the absolute values of the weights in the first layer
+    if (weights_.empty()) {
+        return Eigen::VectorXd::Zero(0);
+    }
+    
+    // Get the weights from the first layer
+    const Eigen::MatrixXd& first_layer_weights = weights_[0];
+    
+    // Calculate feature importance as the sum of absolute weights
+    // connecting each input feature to all neurons in the first hidden layer
+    Eigen::VectorXd importance = first_layer_weights.array().abs().colwise().sum();
+    
+    // Normalize by the number of neurons in the first hidden layer
+    importance /= first_layer_weights.rows();
+    
+    return importance;
+}
+
 } // namespace DataAnalyzer 

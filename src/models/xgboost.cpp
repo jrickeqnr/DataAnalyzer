@@ -258,8 +258,11 @@ double XGBoost::predictTree(const Tree& tree, const Eigen::VectorXd& x, int node
 }
 
 // Helper method to build a regression tree
-void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorXd& y, 
-                               Tree& tree, int depth, int max_depth) {
+void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X,
+                                const Eigen::VectorXd& residuals,
+                                Tree& tree,
+                                [[maybe_unused]] int depth,
+                                int max_depth) {
     // Simple implementation of a regression tree builder
     // In a real implementation, this would be more sophisticated
     
@@ -288,7 +291,7 @@ void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorX
         // Extract the samples for this node
         Eigen::VectorXd node_targets(current_samples.size());
         for (size_t i = 0; i < current_samples.size(); ++i) {
-            node_targets(i) = y(current_samples[i]);
+            node_targets(i) = residuals(current_samples[i]);
         }
         
         double node_value = node_targets.mean();
@@ -358,7 +361,7 @@ void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorX
                 // Left side variance
                 Eigen::VectorXd left_targets(left_samples.size());
                 for (size_t j = 0; j < left_samples.size(); ++j) {
-                    left_targets(j) = y(left_samples[j]);
+                    left_targets(j) = residuals(left_samples[j]);
                 }
                 double left_var = left_targets.array().square().sum() / left_targets.size() - 
                                  std::pow(left_targets.mean(), 2);
@@ -366,7 +369,7 @@ void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorX
                 // Right side variance
                 Eigen::VectorXd right_targets(right_samples.size());
                 for (size_t j = 0; j < right_samples.size(); ++j) {
-                    right_targets(j) = y(right_samples[j]);
+                    right_targets(j) = residuals(right_samples[j]);
                 }
                 double right_var = right_targets.array().square().sum() / right_targets.size() - 
                                   std::pow(right_targets.mean(), 2);
@@ -410,6 +413,25 @@ void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorX
         queue.push(std::make_tuple(left_child, best_left_samples, current_depth + 1));
         queue.push(std::make_tuple(right_child, best_right_samples, current_depth + 1));
     }
+}
+
+Eigen::VectorXd XGBoost::getFeatureImportance() const {
+    // Initialize feature importance vector
+    Eigen::VectorXd importance = Eigen::VectorXd::Zero(trees_[0].feature_indices.size());
+    
+    // For each tree, count how many times each feature is used for splitting
+    for (const auto& tree : trees_) {
+        for (size_t i = 0; i < tree.feature_indices.size(); ++i) {
+            if (tree.feature_indices[i] >= 0) {  // Skip leaf nodes
+                importance(tree.feature_indices[i]) += 1.0;
+            }
+        }
+    }
+    
+    // Normalize by the number of trees
+    importance /= trees_.size();
+    
+    return importance;
 }
 
 } // namespace DataAnalyzer 

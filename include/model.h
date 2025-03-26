@@ -54,6 +54,20 @@ public:
      * @return std::map<std::string, double> Map of hyperparameter names to values
      */
     virtual std::map<std::string, double> getHyperparameters() const = 0;
+
+    /**
+     * @brief Check if the model supports feature importance
+     * @return bool True if the model supports feature importance
+     */
+    virtual bool hasFeatureImportance() const { return false; }
+
+    /**
+     * @brief Get feature importance scores
+     * @return Eigen::VectorXd Feature importance scores
+     */
+    virtual Eigen::VectorXd getFeatureImportance() const {
+        throw std::runtime_error("Feature importance not supported by this model");
+    }
 };
 
 /**
@@ -96,6 +110,9 @@ public:
         const std::vector<double>& alpha_values,
         const std::vector<double>& lambda_values,
         int k = 5);
+
+    bool hasFeatureImportance() const override { return true; }
+    Eigen::VectorXd getFeatureImportance() const override;
 
 private:
     double alpha_;    // Mixing parameter between L1 and L2 (0 <= alpha <= 1)
@@ -193,6 +210,9 @@ public:
         const std::vector<int>& max_depth_values,
         int k = 5);
 
+    bool hasFeatureImportance() const override { return true; }
+    Eigen::VectorXd getFeatureImportance() const override;
+
 private:
     // Hyperparameters
     int n_estimators_;        // Number of boosting rounds
@@ -264,6 +284,9 @@ public:
         const std::vector<double>& learning_rate_values,
         const std::vector<int>& max_depth_values,
         int k = 5);
+
+    bool hasFeatureImportance() const override { return true; }
+    Eigen::VectorXd getFeatureImportance() const override;
 
 private:
     // Hyperparameters
@@ -360,6 +383,9 @@ public:
         const std::vector<double>& learning_rate_values,
         const std::vector<double>& alpha_values,
         int k = 5);
+
+    bool hasFeatureImportance() const override { return true; }
+    Eigen::VectorXd getFeatureImportance() const override;
 
 private:
     // Hyperparameters

@@ -154,6 +154,47 @@ public:
      */
     bool exportToCSV(const std::string& filepath) const;
 
+    /**
+     * @brief Set the selected features
+     * @param features Vector of feature indices
+     */
+    void setSelectedFeatures(const std::vector<size_t>& features) {
+        selectedFeatures_ = features;
+    }
+
+    /**
+     * @brief Set the selected target indices
+     * @param targets Vector of target indices
+     */
+    void setSelectedTargets(const std::vector<size_t>& targets) {
+        selectedTargetIndices_ = targets;
+    }
+
+    /**
+     * @brief Get the target values (first selected target)
+     * @return Eigen::VectorXd Target values
+     */
+    Eigen::VectorXd getTargetValues() const {
+        if (selectedTargetIndices_.empty()) {
+            return Eigen::VectorXd();
+        }
+        return getSelectedTarget(selectedTargetIndices_[0]);
+    }
+
+    /**
+     * @brief Get the feature names for the selected features
+     * @return std::vector<std::string> Feature names
+     */
+    std::vector<std::string> getFeatureNames() const {
+        std::vector<std::string> names;
+        for (size_t idx : selectedFeatures_) {
+            if (idx < columnNames_.size()) {
+                names.push_back(columnNames_[idx]);
+            }
+        }
+        return names;
+    }
+
 private:
     std::vector<std::string> columnNames_;
     std::vector<std::vector<std::string>> rawData_;
@@ -162,6 +203,8 @@ private:
     std::vector<size_t> numericColumnIndices_;
     std::vector<size_t> dateColumnIndices_;
     Frequency frequency_ = Frequency::UNKNOWN;
+    std::vector<size_t> selectedFeatures_;
+    std::vector<size_t> selectedTargetIndices_;
     
     // Helper methods
     bool parseNumericData();

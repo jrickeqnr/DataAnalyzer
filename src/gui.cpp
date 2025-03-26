@@ -468,42 +468,47 @@ void GUI::exportResults(const std::string& dirPath) const {
     fs::create_directories(dirPath);
     
     // Export predictions as CSV
-    if (plot_ && plot_->saveImage(dirPath + "/predictions.csv")) {
-        std::cout << "Exported predictions to " << dirPath << "/predictions.csv" << std::endl;
+    if (plotManager_) {
+        // Export each plot's data
+        for (size_t i = 0; i < plotManager_->getPlotCount(); ++i) {
+            auto plot = plotManager_->getPlot(i);
+            if (plot) {
+                std::string filename = dirPath + "/plot_" + std::to_string(i) + ".csv";
+                plot->saveImage(filename);
+                std::cout << "Exported plot " << i << " to " << filename << std::endl;
+            }
+        }
     }
     
     // Export model stats as TXT
     std::ofstream statsFile(dirPath + "/model_stats.txt");
     if (statsFile.is_open()) {
-        statsFile << "Model: " << "Elastic Net" << std::endl;
-        statsFile << "Description: " << model_->getDescription() << std::endl;
-        statsFile << std::endl;
+        statsFile << "Model Statistics\n";
+        statsFile << "================\n\n";
         
-        statsFile << "Hyperparameters:" << std::endl;
-        for (const auto& [name, value] : model_->getHyperparameters()) {
-            statsFile << "  " << name << ": " << value << std::endl;
+        // Write model type
+        const char* modelTypes[] = {"Linear Regression", "Elastic Net", "XGBoost", "Gradient Boosting", "Neural Network"};
+        statsFile << "Model Type: " << modelTypes[selectedModelIndex_] << "\n\n";
+        
+        // Write hyperparameters
+        statsFile << "Hyperparameters:\n";
+        statsFile << "----------------\n";
+        auto hyperparams = model_->getHyperparameters();
+        for (const auto& [name, value] : hyperparams) {
+            statsFile << name << ": " << value << "\n";
         }
-        statsFile << std::endl;
+        statsFile << "\n";
         
-        statsFile << "Statistics:" << std::endl;
-        for (const auto& [name, value] : model_->getStats()) {
-            statsFile << "  " << name << ": " << value << std::endl;
-        }
-        statsFile << std::endl;
-        
-        statsFile << "Coefficients:" << std::endl;
-        Eigen::VectorXd coefs = model_->getCoefficients();
-        std::vector<std::string> colNames = dataHandler_.getColumnNames();
-        std::vector<size_t> features = selectedFeatures_;
-        
-        for (size_t i = 0; i < coefs.size() && i < features.size(); ++i) {
-            if (features[i] < colNames.size()) {
-                statsFile << "  " << colNames[features[i]] << ": " << coefs(i) << std::endl;
-            }
+        // Write model statistics
+        statsFile << "Model Statistics:\n";
+        statsFile << "----------------\n";
+        auto stats = model_->getStats();
+        for (const auto& [name, value] : stats) {
+            statsFile << name << ": " << value << "\n";
         }
         
         statsFile.close();
-        std::cout << "Exported model stats to " << dirPath << "/model_stats.txt" << std::endl;
+        std::cout << "Exported model statistics to " << dirPath << "/model_stats.txt" << std::endl;
     }
 }
 } 

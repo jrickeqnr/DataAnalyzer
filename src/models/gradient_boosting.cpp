@@ -336,4 +336,23 @@ void GradientBoosting::buildTreeRecursive(
                        best_right_samples, current_depth + 1);
 }
 
+Eigen::VectorXd GradientBoosting::getFeatureImportance() const {
+    // Initialize feature importance vector
+    Eigen::VectorXd importance = Eigen::VectorXd::Zero(trees_[0].nodes.size());
+    
+    // For each tree, count how many times each feature is used for splitting
+    for (const auto& tree : trees_) {
+        for (const auto& node : tree.nodes) {
+            if (!node.is_leaf && node.feature_idx >= 0) {
+                importance(node.feature_idx) += 1.0;
+            }
+        }
+    }
+    
+    // Normalize by the number of trees
+    importance /= trees_.size();
+    
+    return importance;
+}
+
 } // namespace DataAnalyzer 

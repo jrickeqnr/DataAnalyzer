@@ -99,12 +99,146 @@ private:
     bool hasData_ = false;
 };
 
-// Placeholder for future plot types
-/*
+/**
+ * @brief Class for scatter plots of actual vs predicted values
+ */
 class ScatterPlot : public Plot {
-    // To be implemented
+public:
+    /**
+     * @brief Construct a new Scatter Plot
+     * @param title Plot title
+     * @param xLabel Label for x-axis
+     * @param yLabel Label for y-axis
+     */
+    ScatterPlot(const std::string& title = "Actual vs Predicted",
+               const std::string& xLabel = "Actual",
+               const std::string& yLabel = "Predicted");
+    
+    ~ScatterPlot() override = default;
+    
+    /**
+     * @brief Set the data for the plot
+     * @param actual Actual values
+     * @param predicted Predicted values
+     * @return bool True if data was set successfully
+     */
+    bool setData(const Eigen::VectorXd& actual,
+                const Eigen::VectorXd& predicted);
+    
+    /**
+     * @brief Render the plot
+     */
+    void render() override;
+    
+    /**
+     * @brief Save the plot as an image
+     * @param filepath Path to save the image
+     * @return bool True if saving was successful
+     */
+    bool saveImage(const std::string& filepath) const override;
+
+private:
+    std::string xLabel_;
+    std::string yLabel_;
+    Eigen::VectorXd actualValues_;
+    Eigen::VectorXd predictedValues_;
+    bool hasData_ = false;
 };
 
+/**
+ * @brief Class for feature importance plots
+ */
+class FeatureImportancePlot : public Plot {
+public:
+    /**
+     * @brief Construct a new Feature Importance Plot
+     * @param title Plot title
+     * @param xLabel Label for x-axis
+     * @param yLabel Label for y-axis
+     */
+    FeatureImportancePlot(const std::string& title = "Feature Importance",
+                         const std::string& xLabel = "Features",
+                         const std::string& yLabel = "Importance");
+    
+    ~FeatureImportancePlot() override = default;
+    
+    /**
+     * @brief Set the data for the plot
+     * @param featureNames Vector of feature names
+     * @param importance Vector of importance values
+     * @return bool True if data was set successfully
+     */
+    bool setData(const std::vector<std::string>& featureNames,
+                const Eigen::VectorXd& importance);
+    
+    /**
+     * @brief Render the plot
+     */
+    void render() override;
+    
+    /**
+     * @brief Save the plot as an image
+     * @param filepath Path to save the image
+     * @return bool True if saving was successful
+     */
+    bool saveImage(const std::string& filepath) const override;
+
+private:
+    std::string xLabel_;
+    std::string yLabel_;
+    std::vector<std::string> featureNames_;
+    Eigen::VectorXd importanceValues_;
+    bool hasData_ = false;
+};
+
+/**
+ * @brief Class for managing multiple plots
+ */
+class PlotManager {
+public:
+    /**
+     * @brief Add a plot to the manager
+     * @param plot The plot to add
+     */
+    void addPlot(std::shared_ptr<Plot> plot);
+    
+    /**
+     * @brief Render all plots
+     */
+    void render();
+    
+    /**
+     * @brief Get the current plot index
+     * @return size_t The current plot index
+     */
+    size_t getCurrentPlotIndex() const;
+    
+    /**
+     * @brief Set the current plot index
+     * @param index The new plot index
+     */
+    void setCurrentPlotIndex(size_t index);
+    
+    /**
+     * @brief Get the number of plots
+     * @return size_t The number of plots
+     */
+    size_t getPlotCount() const;
+    
+    /**
+     * @brief Get a plot by index
+     * @param index The index of the plot to get
+     * @return std::shared_ptr<Plot> The plot at the given index, or nullptr if invalid
+     */
+    std::shared_ptr<Plot> getPlot(size_t index) const;
+
+private:
+    std::vector<std::shared_ptr<Plot>> plots_;
+    size_t currentPlotIndex_ = 0;
+};
+
+// Placeholder for future plot types
+/*
 class BarChart : public Plot {
     // To be implemented
 };

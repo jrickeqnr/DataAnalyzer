@@ -223,4 +223,9 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
     r_squared_ = 1.0 - (ss_residual / ss_total);
 }
 
+Eigen::VectorXd ElasticNet::getFeatureImportance() const {
+    // For ElasticNet, feature importance is the absolute value of coefficients
+    return coefficients_.array().abs();
+}
+
 } // namespace DataAnalyzer 
