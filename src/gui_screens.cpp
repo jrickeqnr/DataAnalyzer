@@ -26,25 +26,31 @@ void GUI::renderFileBrowser() {
         showFileDialog = true;
     }
     
+    // Modal window for file selection
     if (showFileDialog) {
-        // Set the file dialog window position to be further right
-        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.3f, 0.0f));
-        if (ImGuiFileDialog::fileDialog(selectedFilePath_, "Select CSV File", ".csv")) {
-            showFileDialog = false;
-            
-            // Load the selected file
-            if (!selectedFilePath_.empty()) {
-                ImGui::Text("Loading file: %s", selectedFilePath_.c_str());
+        ImGui::SetNextWindowSize(ImVec2(600, 400));
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.3f, ImGui::GetIO().DisplaySize.y * 0.2f));
+        
+        if (ImGui::Begin("Select CSV File", &showFileDialog, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse)) {
+            // Set the file dialog window position to be further right
+            if (ImGuiFileDialog::fileDialog(selectedFilePath_, "Select CSV File", ".csv")) {
+                showFileDialog = false;
                 
-                // Load the CSV file
-                if (dataHandler_.loadCSV(selectedFilePath_)) {
-                    ImGui::Text("File loaded successfully!");
-                } else {
-                    ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error loading file!");
-                    selectedFilePath_.clear();
+                // Load the selected file
+                if (!selectedFilePath_.empty()) {
+                    ImGui::Text("Loading file: %s", selectedFilePath_.c_str());
+                    
+                    // Load the CSV file
+                    if (dataHandler_.loadCSV(selectedFilePath_)) {
+                        ImGui::Text("File loaded successfully!");
+                    } else {
+                        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error loading file!");
+                        selectedFilePath_.clear();
+                    }
                 }
             }
         }
+        ImGui::End();
     }
     
     if (!selectedFilePath_.empty()) {
@@ -236,7 +242,7 @@ void GUI::renderModelSelection() {
         switch (selectedModel) {
             case 0: // Linear Regression
                 ImGui::TextWrapped("Input Features -> [Linear Regression] -> Prediction");
-                ImGui::TextWrapped("Model: y = β₀ + β₁x₁ + β₂x₂ + ... + βₙxₙ");
+                ImGui::TextWrapped("Model: y = b0 + b1*x1 + b2*x2 + ... + bn*xn");
                 break;
             case 1: // Elastic Net
                 ImGui::TextWrapped("Input Features -> [Elastic Net] -> Prediction");
@@ -624,7 +630,49 @@ void GUI::renderHyperparameters() {
         }
     }
     
-    // Train Model button
+    // Display current model results if available
+    if (modelTrainingSuccess_) {
+        ImGui::Separator();
+        ImGui::Text("Model Results");
+        ImGui::Separator();
+        
+        // Display R-squared
+        if (modelStats_.find("R²") != modelStats_.end()) {
+            ImGui::Text("R-squared: %.4f", modelStats_["R²"]);
+        }
+        
+        // Display coefficients for linear regression
+        if (selectedModelIndex_ == 0) {
+            ImGui::Text("Model Coefficients:");
+            ImGui::Indent(20.0f);
+            
+            // Display intercept
+            ImGui::Text("Intercept: %.4f", modelIntercept_);
+            
+            // Display feature coefficients
+            for (size_t i = 0; i < featureNames_.size(); ++i) {
+                if (static_cast<Eigen::Index>(i) < modelCoefficients_.size()) {
+                    ImGui::Text("%s: %.4f", featureNames_[i].c_str(), modelCoefficients_(i));
+                }
+            }
+            ImGui::Unindent(20.0f);
+        }
+        
+        // Display RMSE if available
+        if (modelStats_.find("RMSE") != modelStats_.end()) {
+            ImGui::Text("Root Mean Square Error: %.4f", modelStats_["RMSE"]);
+        }
+        
+        // Show hyperparameter information if auto-tuning was used
+        if (autoHyperparameters_) {
+            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters were found via grid search.");
+            ImGui::Text("Best hyperparameters:");
+            for (const auto& [name, value] : modelHyperparams_) {
+                ImGui::BulletText("%s: %.4f", name.c_str(), value);
+            }
+        }
+    }
+    
     ImGui::Spacing();
     if (ImGui::Button("Train Model", ImVec2(200, 0))) {
         // Show a "Tuning hyperparameters..." message if using automatic tuning
@@ -660,6 +708,14 @@ void GUI::renderHyperparameters() {
         if (!selectedTargetIndices_.empty()) {
             y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
         }
+        
+        // Reset training results
+        modelTrainingSuccess_ = false;
+        modelStats_.clear();
+        modelHyperparams_.clear();
+        modelCoefficients_.resize(0);
+        featureNames_ = dataHandler_.getFeatureNames();
+        modelIntercept_ = 0.0;
         
         // Create model based on selection
         switch (selectedModelIndex_) {
@@ -773,7 +829,14 @@ void GUI::renderHyperparameters() {
             bool success = model_->train(X, y);
             
             if (success) {
-                // Get predictions
+                modelTrainingSuccess_ = true;
+                
+                // Store model results
+                modelStats_ = model_->getStats();
+                modelHyperparams_ = model_->getHyperparameters();
+                modelCoefficients_ = model_->getCoefficients();
+                
+                // Get predictions for plotting
                 predictions_ = model_->predict(X);
                 
                 // Create plot
@@ -784,19 +847,6 @@ void GUI::renderHyperparameters() {
                 
                 // Show success message
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Model trained successfully!");
-                
-                // Show a message about the hyperparameters if automatic tuning was used
-                if (autoHyperparameters_) {
-                    ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters were found via grid search.");
-                    
-                    // Display the best hyperparameters
-                    auto hyperparams = model_->getHyperparameters();
-                    ImGui::Text("Best hyperparameters:");
-                    
-                    for (const auto& [name, value] : hyperparams) {
-                        ImGui::BulletText("%s: %.4f", name.c_str(), value);
-                    }
-                }
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Error training model!");
             }
@@ -829,6 +879,46 @@ void GUI::renderPlotting() {
         ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No model trained yet. Please train a model first.");
         return;
     }
+
+    // Display model results at the top
+    ImGui::Text("Model Results");
+    ImGui::Separator();
+    
+    // Get model statistics
+    auto stats = model_->getStats();
+    
+    // Display R-squared
+    if (stats.find("R-squared") != stats.end()) {
+        ImGui::Text("R-squared: %.4f", stats["R-squared"]);
+    }
+    
+    // Display coefficients for linear regression
+    if (selectedModelIndex_ == 0) { // Linear Regression
+        ImGui::Text("Model Coefficients:");
+        ImGui::Indent(20.0f);
+        
+        // Get feature names
+        const std::vector<std::string>& featureNames = dataHandler_.getFeatureNames();
+        
+        // Display intercept
+        ImGui::Text("Intercept: %.4f", stats["Intercept"]);
+        
+        // Display feature coefficients
+        for (size_t i = 0; i < featureNames.size(); ++i) {
+            std::string coefKey = "Coefficient_" + std::to_string(i);
+            if (stats.find(coefKey) != stats.end()) {
+                ImGui::Text("%s: %.4f", featureNames[i].c_str(), stats[coefKey]);
+            }
+        }
+        ImGui::Unindent(20.0f);
+    }
+    
+    // Display RMSE if available
+    if (stats.find("RMSE") != stats.end()) {
+        ImGui::Text("Root Mean Square Error: %.4f", stats["RMSE"]);
+    }
+    
+    ImGui::Separator();
 
     // Create plots if they don't exist
     if (!plotManager_) {

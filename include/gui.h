@@ -81,6 +81,14 @@ private:
     std::vector<size_t> selectedTargetIndices_;
     bool includeSeasonality_ = false;
     
+    // Model training results
+    bool modelTrainingSuccess_ = false;
+    std::map<std::string, double> modelStats_;
+    std::map<std::string, double> modelHyperparams_;
+    Eigen::VectorXd modelCoefficients_;
+    std::vector<std::string> featureNames_;
+    double modelIntercept_ = 0.0;
+    
     // Model hyperparameters
     // Elastic Net
     double alpha_ = 0.5;

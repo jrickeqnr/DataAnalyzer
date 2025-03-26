@@ -126,15 +126,8 @@ namespace ImGuiFileDialog {
             // Selected file display
             ImGui::Text("Selected: %s", selectedFile.c_str());
             
-            // Cancel and OK buttons
+            // OK button
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 10);
-            
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                ImGui::End();
-                return false;
-            }
-            
-            ImGui::SameLine();
             
             bool okEnabled = !selectedFile.empty() || (onlyDirectories && fs::is_directory(currentPath, ec));
             
