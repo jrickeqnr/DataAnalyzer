@@ -1,8 +1,0 @@
-Model Structure:
-Gradient Boosting is a machine learning technique that produces a prediction model in the form of an ensemble of weak prediction models, typically decision trees. It builds models sequentially, with each new model correcting errors made by previously trained models. The algorithm is highly effective for both regression and classification tasks, known for its accuracy and flexibility.
-
-Hyperparameters:
-learning_rate: 0.01
-max_depth: 3
-min_samples_split: 2
-n_estimators: 50
