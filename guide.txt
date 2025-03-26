@@ -1,0 +1,65 @@
+DataAnalyzerCpp/
+├── include/
+│   ├── model.h         // Base Model class and Elastic Net implementation
+│   ├── data_handler.h  // CSV loading, frequency detection, outlier handling
+│   ├── gui.h           // GUI logic (screens, interactions)
+│   ├── plotting.h      // Plotting logic (time series for now)
+├── src/
+│   ├── main.cpp        // Entry point, ties everything together
+│   ├── model.cpp       // Model implementations
+│   ├── data_handler.cpp// Data processing logic
+│   ├── gui.cpp         // GUI implementation
+│   ├── plotting.cpp    // Plotting implementation
+├── lib/
+│   ├── eigen/          // Eigen library (header-only)
+│   ├── imgui/          // Dear ImGui (header-only)
+│   ├── implot/         // ImPlot (header-only)
+│   ├── glfw/           // GLFW (static linking)
+│   ├── fast-cpp-csv-parser/ // CSV parser (header-only)
+├── CMakeLists.txt      // Build configuration
+├── README.md           // Project overview, setup instructions
+
+
+#### Requirements
+1. **Libraries**:
+   - GUI: Dear ImGui + GLFW + OpenGL (statically linked).
+   - Plotting: ImPlot (integrated with ImGui).
+   - Linear Algebra: Eigen (header-only).
+   - CSV Parsing: Fast-CPP-CSV-Parser (header-only).
+
+2. **Screens**:
+   - **Screen 1**: File browser (using ImGui+GLFW) to load CSV, detect frequency (weekly, monthly, quarterly, yearly) from date column(s), display summary.
+   - **Screen 2**: Detect outliers (IQR method) per column, display them, offer "Fix outliers? Yes/No" buttons, interpolate using previous/next values if "Yes".
+   - **Screen 3**: Model selection (Elastic Net only for now), show description, proceed button.
+   - **Screen 4**: Variable selection (list all columns except date(s), "Select All" option), target selection, "Include Seasonality" checkbox (add sin/cos features based on frequency).
+   - **Screen 5**: Hyperparameter input (alpha, lambda for Elastic Net), "Auto" checkbox (grid search for best params), train model, show RMSE, R², coefficients, hyperparameters.
+   - **Screen 6**: Plot window with time series (predicted vs. actual), cycle through plots (for now, just one), status bar with "File > Export" to save screenshots, predictions CSV, model stats TXT in a `{model_name}` directory.
+
+3. **Model Framework**:
+   - `model.h`: Define a base `Model` class with virtual methods `train()`, `predict()`, `get_stats()`, `get_description()`. Implement Elastic Net using Eigen. Add placeholders for future models (XGBoost, Neural Network, Linear Regression, Random Forest).
+
+4. **Data Flow**:
+   - Load CSV → Process data (outliers, seasonality) → Train model → Generate predictions → Export results in a format (CSV/JSON) readable by another AI.
+
+5. **Portability**:
+   - Statically link GLFW, bundle all header-only libraries (Eigen, ImGui, ImPlot, Fast-CPP-CSV-Parser), avoid external runtimes.
+
+#### Tasks
+- Create the repository with the above structure.
+- Implement a basic `main.cpp` that initializes GLFW, ImGui, and ImPlot, and cycles through the six screens.
+- Write `model.h` and `model.cpp` with a base `Model` class and Elastic Net implementation (use Eigen for matrix operations).
+- Implement `data_handler.h/cpp` for CSV loading (with robust date parsing), frequency detection, and outlier handling.
+- Implement `gui.h/cpp` for the six screens using ImGui.
+- Implement `plotting.h/cpp` for a time series plot (predicted vs. actual) using ImPlot.
+- Add a `CMakeLists.txt` to build the project with static linking for GLFW.
+- Include a `README.md` with setup instructions, library credits, and usage guide.
+
+#### Notes
+- Use C++17 for modern features.
+- Ensure all code is well-commented.
+- Test with a sample CSV (e.g., date, var1, var2, target).
+- Output predictions and stats in a portable format (e.g., CSV or JSON).
+
+---
+
+Please create this repository and provide the initial code stubs for all files. Focus on portability and extensibility for future models and plots.
