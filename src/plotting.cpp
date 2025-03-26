@@ -412,4 +412,229 @@ std::shared_ptr<Plot> PlotManager::getPlot(size_t index) const {
     return nullptr;
 }
 
+// ResidualPlot Implementation
+ResidualPlot::ResidualPlot(const std::string& title, const std::string& xLabel, const std::string& yLabel)
+    : Plot(title), xLabel_(xLabel), yLabel_(yLabel), hasData_(false) {
+}
+
+bool ResidualPlot::setData(const Eigen::VectorXd& predicted, const Eigen::VectorXd& residuals) {
+    if (predicted.size() != residuals.size() || predicted.size() == 0) {
+        return false;
+    }
+    
+    predictedValues_ = predicted;
+    residualValues_ = residuals;
+    hasData_ = true;
+    
+    return true;
+}
+
+void ResidualPlot::render() {
+    if (!hasData_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No data available to plot");
+        return;
+    }
+    
+    // Convert Eigen vectors to std::vector for ImPlot
+    std::vector<double> predicted(predictedValues_.data(), predictedValues_.data() + predictedValues_.size());
+    std::vector<double> residuals(residualValues_.data(), residualValues_.data() + residualValues_.size());
+    
+    // Set up plot parameters
+    if (ImPlot::BeginPlot(title_.c_str(), ImVec2(-1, -1), ImPlotFlags_NoMouseText)) {
+        // Set axis labels
+        ImPlot::SetupAxes(xLabel_.c_str(), yLabel_.c_str());
+        
+        // Plot scatter points
+        ImPlot::SetNextMarkerStyle(ImPlotMarker_Circle, 4, ImVec4(0.0f, 0.7f, 0.0f, 1.0f), IMPLOT_AUTO, ImVec4(0.0f, 0.7f, 0.0f, 1.0f));
+        ImPlot::PlotScatter("Residuals", predicted.data(), residuals.data(), predicted.size());
+        
+        // Plot zero line
+        double minVal = predictedValues_.minCoeff();
+        double maxVal = predictedValues_.maxCoeff();
+        std::vector<double> zeroLine = {minVal, maxVal};
+        std::vector<double> zeros = {0.0, 0.0};
+        ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
+        ImPlot::PlotLine("Zero Line", zeroLine.data(), zeros.data(), zeroLine.size());
+        
+        ImPlot::EndPlot();
+    }
+    
+    // Display statistics
+    ImGui::Separator();
+    ImGui::Text("Residual Statistics:");
+    
+    // Calculate residual statistics
+    double meanResidual = residualValues_.mean();
+    double stdResidual = std::sqrt((residualValues_.array() - meanResidual).square().sum() / (residualValues_.size() - 1));
+    
+    ImGui::Text("Mean Residual: %.4f", meanResidual);
+    ImGui::Text("Std Dev of Residuals: %.4f", stdResidual);
+}
+
+bool ResidualPlot::saveImage(const std::string& filepath) const {
+    try {
+        std::filesystem::path path(filepath);
+        std::filesystem::create_directories(path.parent_path());
+        
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            return false;
+        }
+        
+        // Write header
+        file << "Predicted,Residual\n";
+        
+        // Write data
+        for (int i = 0; i < predictedValues_.size(); ++i) {
+            file << predictedValues_(i) << ","
+                 << residualValues_(i) << "\n";
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
+// CoefficientStatsPlot Implementation
+CoefficientStatsPlot::CoefficientStatsPlot(const std::string& title, const std::string& xLabel, const std::string& yLabel)
+    : Plot(title), xLabel_(xLabel), yLabel_(yLabel), hasData_(false) {
+}
+
+bool CoefficientStatsPlot::setData(const std::vector<std::string>& featureNames,
+                                  const Eigen::VectorXd& coefficients,
+                                  const Eigen::VectorXd& standardErrors,
+                                  const Eigen::VectorXd& tValues) {
+    if (featureNames.empty() || 
+        coefficients.size() != featureNames.size() ||
+        standardErrors.size() != featureNames.size() ||
+        tValues.size() != featureNames.size()) {
+        return false;
+    }
+    
+    featureNames_ = featureNames;
+    coefficientValues_ = coefficients;
+    standardErrors_ = standardErrors;
+    tValues_ = tValues;
+    hasData_ = true;
+    
+    return true;
+}
+
+void CoefficientStatsPlot::render() {
+    if (!hasData_ || featureNames_.empty()) {
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No data available to plot");
+        return;
+    }
+    
+    // Convert feature names to char* array for ImPlot
+    std::vector<const char*> labels(featureNames_.size());
+    for (size_t i = 0; i < featureNames_.size(); ++i) {
+        labels[i] = featureNames_[i].c_str();
+    }
+    
+    // Convert Eigen vectors to std::vector for ImPlot
+    std::vector<double> coefficients(coefficientValues_.data(), coefficientValues_.data() + coefficientValues_.size());
+    std::vector<double> standardErrors(standardErrors_.data(), standardErrors_.data() + standardErrors_.size());
+    std::vector<double> tValues(tValues_.data(), tValues_.data() + tValues_.size());
+    
+    // Create x-axis values (0, 1, 2, ...)
+    std::vector<double> xs(coefficients.size());
+    std::iota(xs.begin(), xs.end(), 0.0);
+    
+    // Set up plot parameters for coefficients and standard errors
+    if (ImPlot::BeginPlot((title_ + " - Coefficients and Standard Errors").c_str(), ImVec2(-1, -1), ImPlotFlags_NoMouseText)) {
+        // Set axis labels
+        ImPlot::SetupAxes(xLabel_.c_str(), "Value");
+        
+        // Set x-axis tick labels to be feature names
+        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), xs.size(), labels.data());
+        
+        // Plot coefficients as bars
+        ImPlot::SetNextFillStyle(ImVec4(0.0f, 0.7f, 0.0f, 0.5f));
+        ImPlot::PlotBars("Coefficients", xs.data(), coefficients.data(), coefficients.size(), 0.4);
+        
+        // Plot error bars
+        for (size_t i = 0; i < coefficients.size(); ++i) {
+            double x = xs[i];
+            double y = coefficients[i];
+            double err = standardErrors[i];
+            
+            ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
+            std::vector<double> errX = {x, x};
+            std::vector<double> errY = {y - err, y + err};
+            ImPlot::PlotLine("##ErrorBar", errX.data(), errY.data(), 2);
+        }
+        
+        ImPlot::EndPlot();
+    }
+    
+    // Set up plot parameters for t-values
+    if (ImPlot::BeginPlot((title_ + " - T-Values").c_str(), ImVec2(-1, -1), ImPlotFlags_NoMouseText)) {
+        // Set axis labels
+        ImPlot::SetupAxes(xLabel_.c_str(), "T-Value");
+        
+        // Set x-axis tick labels to be feature names
+        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), xs.size(), labels.data());
+        
+        // Plot t-values as bars
+        ImPlot::SetNextFillStyle(ImVec4(0.0f, 0.0f, 0.7f, 0.5f));
+        ImPlot::PlotBars("T-Values", xs.data(), tValues.data(), tValues.size(), 0.4);
+        
+        // Plot significance thresholds (±1.96 for 95% confidence)
+        double minX = -0.5;
+        double maxX = xs.back() + 0.5;
+        std::vector<double> threshX = {minX, maxX};
+        std::vector<double> threshY_pos = {1.96, 1.96};
+        std::vector<double> threshY_neg = {-1.96, -1.96};
+        
+        ImPlot::SetNextLineStyle(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), 1.0f);
+        ImPlot::PlotLine("95% Confidence", threshX.data(), threshY_pos.data(), 2);
+        ImPlot::PlotLine("##NegThreshold", threshX.data(), threshY_neg.data(), 2);
+        
+        ImPlot::EndPlot();
+    }
+    
+    // Display statistics
+    ImGui::Separator();
+    ImGui::Text("Coefficient Statistics:");
+    
+    for (size_t i = 0; i < featureNames_.size(); ++i) {
+        ImGui::Text("%s:", featureNames_[i].c_str());
+        ImGui::Indent(20.0f);
+        ImGui::Text("Coefficient: %.4f", coefficientValues_(i));
+        ImGui::Text("Std Error: %.4f", standardErrors_(i));
+        ImGui::Text("T-Value: %.4f", tValues_(i));
+        ImGui::Text("P-Value: %.4f", 2.0 * (1.0 - std::erf(std::abs(tValues_(i)) / std::sqrt(2.0))));
+        ImGui::Unindent(20.0f);
+    }
+}
+
+bool CoefficientStatsPlot::saveImage(const std::string& filepath) const {
+    try {
+        std::filesystem::path path(filepath);
+        std::filesystem::create_directories(path.parent_path());
+        
+        std::ofstream file(filepath);
+        if (!file.is_open()) {
+            return false;
+        }
+        
+        // Write header
+        file << "Feature,Coefficient,StandardError,TValue\n";
+        
+        // Write data
+        for (size_t i = 0; i < featureNames_.size(); ++i) {
+            file << featureNames_[i] << ","
+                 << coefficientValues_(i) << ","
+                 << standardErrors_(i) << ","
+                 << tValues_(i) << "\n";
+        }
+        
+        return true;
+    } catch (const std::exception& e) {
+        return false;
+    }
+}
+
 } // namespace DataAnalyzer 

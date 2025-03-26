@@ -1017,12 +1017,6 @@ void GUI::renderHyperparameters() {
                 // Get predictions for plotting
                 predictions_ = model_->predict(X);
                 
-                // Create plot
-                plotManager_ = std::make_shared<PlotManager>();
-                auto timeSeriesPlot = std::make_shared<TimeSeries>("Model Predictions", "Date", "Value");
-                timeSeriesPlot->setData(dataHandler_.getDates(), dataHandler_.getTargetValues(), predictions_);
-                plotManager_->addPlot(timeSeriesPlot);
-                
                 // Show success message
                 ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Model trained successfully!");
             } else {
@@ -1103,24 +1097,84 @@ void GUI::renderPlotting() {
         plotManager_ = std::make_shared<PlotManager>();
         
         // Add time series plot
-        auto timeSeriesPlot = std::make_shared<TimeSeries>("Model Predictions", "Date", "Value");
+        auto timeSeriesPlot = std::make_shared<TimeSeries>(
+            "Time Series: Actual vs Predicted Values Over Time",
+            "Date",
+            "Value"
+        );
         std::vector<Date> dates = dataHandler_.getDates();
         Eigen::VectorXd actual = dataHandler_.getTargetValues();
         timeSeriesPlot->setData(dates, actual, predictions_);
         plotManager_->addPlot(timeSeriesPlot);
         
         // Add scatter plot
-        auto scatterPlot = std::make_shared<ScatterPlot>("Actual vs Predicted", "Actual", "Predicted");
+        auto scatterPlot = std::make_shared<ScatterPlot>(
+            "Scatter Plot: Actual vs Predicted Values",
+            "Actual Values",
+            "Model Predictions"
+        );
         scatterPlot->setData(actual, predictions_);
         plotManager_->addPlot(scatterPlot);
         
-        // Add feature importance plot if the model supports it
+        // Add residual plot
+        Eigen::VectorXd residuals = actual - predictions_;
+        auto residualPlot = std::make_shared<ResidualPlot>(
+            "Residual Analysis: Model Error Distribution",
+            "Predicted Values",
+            "Residuals (Actual - Predicted)"
+        );
+        residualPlot->setData(predictions_, residuals);
+        plotManager_->addPlot(residualPlot);
+        
+        // Add coefficient statistics plot for linear models
+        if (selectedModelIndex_ == 0 || selectedModelIndex_ == 1) {
+            const std::vector<std::string>& featureNames = dataHandler_.getFeatureNames();
+            Eigen::VectorXd coefficients = model_->getCoefficients();
+            Eigen::VectorXd standardErrors(coefficients.size());
+            Eigen::VectorXd tValues(coefficients.size());
+            
+            for (int i = 0; i < coefficients.size(); ++i) {
+                std::string se_key = "SE_" + std::to_string(i);
+                std::string t_key = "t_value_" + std::to_string(i);
+                standardErrors(i) = stats.find(se_key) != stats.end() ? stats[se_key] : 0.0;
+                tValues(i) = stats.find(t_key) != stats.end() ? stats[t_key] : 0.0;
+            }
+            
+            auto coeffStatsPlot = std::make_shared<CoefficientStatsPlot>(
+                "Coefficient Statistics: Feature Importance and Significance",
+                "Features",
+                "Coefficient Values"
+            );
+            coeffStatsPlot->setData(featureNames, coefficients, standardErrors, tValues);
+            plotManager_->addPlot(coeffStatsPlot);
+        }
+        
+        // Add feature importance plot if applicable
         if (model_->hasFeatureImportance()) {
-            auto featurePlot = std::make_shared<FeatureImportancePlot>("Feature Importance", "Feature", "Importance");
+            auto featurePlot = std::make_shared<FeatureImportancePlot>(
+                "Feature Importance Analysis",
+                "Features",
+                "Relative Importance"
+            );
             featurePlot->setData(dataHandler_.getFeatureNames(), model_->getFeatureImportance());
             plotManager_->addPlot(featurePlot);
         }
     }
+
+    // Add explanatory text before rendering the plot
+    ImGui::TextWrapped("Use the navigation buttons below to cycle through different visualizations of the model results:");
+    ImGui::BulletText("Time Series Plot: Shows how well the model predictions match actual values over time");
+    ImGui::BulletText("Scatter Plot: Displays the correlation between actual and predicted values");
+    ImGui::BulletText("Residual Analysis: Helps identify patterns in prediction errors");
+    if (selectedModelIndex_ == 0 || selectedModelIndex_ == 1) {
+        ImGui::BulletText("Coefficient Statistics: Shows the significance and impact of each feature");
+    }
+    if (model_->hasFeatureImportance()) {
+        ImGui::BulletText("Feature Importance: Visualizes the relative importance of each input feature");
+    }
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 
     // Render plots
     plotManager_->render();

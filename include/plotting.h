@@ -248,4 +248,102 @@ class Histogram : public Plot {
 };
 */
 
+/**
+ * @brief Class for residual plots
+ */
+class ResidualPlot : public Plot {
+public:
+    /**
+     * @brief Construct a new Residual Plot
+     * @param title Plot title
+     * @param xLabel Label for x-axis
+     * @param yLabel Label for y-axis
+     */
+    ResidualPlot(const std::string& title = "Residual Analysis",
+                const std::string& xLabel = "Predicted",
+                const std::string& yLabel = "Residuals");
+    
+    ~ResidualPlot() override = default;
+    
+    /**
+     * @brief Set the data for the plot
+     * @param predicted Predicted values
+     * @param residuals Residual values
+     * @return bool True if data was set successfully
+     */
+    bool setData(const Eigen::VectorXd& predicted,
+                const Eigen::VectorXd& residuals);
+    
+    /**
+     * @brief Render the plot
+     */
+    void render() override;
+    
+    /**
+     * @brief Save the plot as an image
+     * @param filepath Path to save the image
+     * @return bool True if saving was successful
+     */
+    bool saveImage(const std::string& filepath) const override;
+
+private:
+    std::string xLabel_;
+    std::string yLabel_;
+    Eigen::VectorXd predictedValues_;
+    Eigen::VectorXd residualValues_;
+    bool hasData_ = false;
+};
+
+/**
+ * @brief Class for coefficient statistics plots
+ */
+class CoefficientStatsPlot : public Plot {
+public:
+    /**
+     * @brief Construct a new Coefficient Statistics Plot
+     * @param title Plot title
+     * @param xLabel Label for x-axis
+     * @param yLabel Label for y-axis
+     */
+    CoefficientStatsPlot(const std::string& title = "Coefficient Statistics",
+                        const std::string& xLabel = "Features",
+                        const std::string& yLabel = "Value");
+    
+    ~CoefficientStatsPlot() override = default;
+    
+    /**
+     * @brief Set the data for the plot
+     * @param featureNames Vector of feature names
+     * @param coefficients Vector of coefficient values
+     * @param standardErrors Vector of standard errors
+     * @param tValues Vector of t-values
+     * @return bool True if data was set successfully
+     */
+    bool setData(const std::vector<std::string>& featureNames,
+                const Eigen::VectorXd& coefficients,
+                const Eigen::VectorXd& standardErrors,
+                const Eigen::VectorXd& tValues);
+    
+    /**
+     * @brief Render the plot
+     */
+    void render() override;
+    
+    /**
+     * @brief Save the plot as an image
+     * @param filepath Path to save the image
+     * @return bool True if saving was successful
+     */
+    bool saveImage(const std::string& filepath) const override;
+
+private:
+    std::string xLabel_;
+    std::string yLabel_;
+    std::vector<std::string> featureNames_;
+    Eigen::VectorXd coefficientValues_;
+    Eigen::VectorXd standardErrors_;
+    Eigen::VectorXd tValues_;
+    bool hasData_ = false;
+};
+
 } // namespace DataAnalyzer 
