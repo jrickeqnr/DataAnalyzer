@@ -126,6 +126,7 @@ private:
     // Statistics
     double rmse_;     // Root Mean Squared Error
     double r_squared_; // R-squared
+    std::map<std::string, double> stats_; // Model statistics
     
     // Private helper methods
     double softThreshold(double x, double lambda) const;
@@ -162,6 +163,7 @@ private:
     // Statistics
     double rmse_;        // Root Mean Squared Error
     double r_squared_;   // R-squared
+    std::map<std::string, double> stats_; // Model statistics
     
     // Private helper method
     void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
@@ -221,7 +223,6 @@ private:
     double subsample_;        // Subsample ratio
     
     // Internal model representation
-    // In a real implementation, this would likely be a handle to an xgboost model
     struct Tree {
         std::vector<int> feature_indices;
         std::vector<double> thresholds;
@@ -234,12 +235,14 @@ private:
     // Statistics
     double rmse_;       // Root Mean Squared Error
     double r_squared_;  // R-squared
+    std::map<std::string, double> stats_; // Model statistics
     
     // Private helper methods
     void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
     double predictTree(const Tree& tree, const Eigen::VectorXd& x, int node_idx = 0) const;
     void buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorXd& y, 
                            Tree& tree, int depth, int max_depth);
+    double computeAverageTreeDepth() const;
 };
 
 /**
@@ -331,6 +334,7 @@ private:
     // Statistics
     double rmse_;       // Root Mean Squared Error
     double r_squared_;  // R-squared
+    std::map<std::string, double> stats_; // Model statistics
     
     // Private helper methods
     void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);
@@ -407,6 +411,7 @@ private:
     // Statistics
     double rmse_;       // Root Mean Squared Error
     double r_squared_;  // R-squared
+    std::map<std::string, double> stats_; // Model statistics
     
     // Private helper methods
     void computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y);

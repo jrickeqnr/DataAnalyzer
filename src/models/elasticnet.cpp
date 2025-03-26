@@ -86,10 +86,7 @@ Eigen::VectorXd ElasticNet::predict(const Eigen::MatrixXd& X) const {
 }
 
 std::map<std::string, double> ElasticNet::getStats() const {
-    return {
-        {"RMSE", rmse_},
-        {"R²", r_squared_}
-    };
+    return stats_;
 }
 
 std::string ElasticNet::getDescription() const {
@@ -212,15 +209,74 @@ double ElasticNet::softThreshold(double x, double lambda) const {
 
 void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
+    int n = X.rows();
+    int p = X.cols();
     
-    // Calculate Root Mean Squared Error (RMSE)
-    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    // Calculate prediction errors
+    Eigen::VectorXd residuals = y - predictions;
+    
+    // Calculate MSE (Mean Squared Error)
+    double mse = residuals.array().square().mean();
+    
+    // Calculate RMSE (Root Mean Squared Error)
+    rmse_ = std::sqrt(mse);
+    
+    // Calculate MAE (Mean Absolute Error)
+    double mae = residuals.array().abs().mean();
     
     // Calculate R-squared
     double y_mean = y.mean();
     double ss_total = (y.array() - y_mean).square().sum();
-    double ss_residual = (y - predictions).array().square().sum();
+    double ss_residual = residuals.array().square().sum();
     r_squared_ = 1.0 - (ss_residual / ss_total);
+    
+    // Calculate Adjusted R-squared
+    double adj_r_squared = 1.0 - (1.0 - r_squared_) * (n - 1) / (n - p - 1);
+    
+    // Add column of ones for intercept
+    Eigen::MatrixXd X_with_intercept = Eigen::MatrixXd::Ones(n, p + 1);
+    X_with_intercept.rightCols(p) = X;
+    
+    // Calculate variance-covariance matrix
+    double sigma2 = ss_residual / (n - p - 1); // Unbiased estimate of error variance
+    Eigen::MatrixXd cov_matrix = sigma2 * (X_with_intercept.transpose() * X_with_intercept).inverse();
+    
+    // Calculate standard errors
+    Eigen::VectorXd std_errors = cov_matrix.diagonal().array().sqrt();
+    
+    // Calculate t-values
+    Eigen::VectorXd t_values(p + 1);
+    t_values(0) = intercept_ / std_errors(0);
+    t_values.tail(p) = coefficients_.array() / std_errors.tail(p).array();
+    
+    // Calculate AIC and BIC
+    double aic = n * std::log(ss_residual / n) + 2 * (p + 1);
+    double bic = n * std::log(ss_residual / n) + std::log(n) * (p + 1);
+    
+    // Calculate L1 and L2 norms of coefficients
+    double l1_norm = coefficients_.array().abs().sum();
+    double l2_norm = coefficients_.norm();
+    
+    // Store all statistics in the stats map
+    stats_ = {
+        {"RMSE", rmse_},
+        {"MSE", mse},
+        {"MAE", mae},
+        {"R²", r_squared_},
+        {"Adjusted R²", adj_r_squared},
+        {"AIC", aic},
+        {"BIC", bic},
+        {"L1 Norm", l1_norm},
+        {"L2 Norm", l2_norm},
+        {"Intercept SE", std_errors(0)},
+        {"Intercept t-value", t_values(0)}
+    };
+    
+    // Store coefficient statistics
+    for (int i = 0; i < p; ++i) {
+        stats_["SE_" + std::to_string(i)] = std_errors(i + 1);
+        stats_["t_value_" + std::to_string(i)] = t_values(i + 1);
+    }
 }
 
 Eigen::VectorXd ElasticNet::getFeatureImportance() const {

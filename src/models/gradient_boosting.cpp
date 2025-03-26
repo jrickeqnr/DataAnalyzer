@@ -66,10 +66,7 @@ Eigen::VectorXd GradientBoosting::predict(const Eigen::MatrixXd& X) const {
 }
 
 std::map<std::string, double> GradientBoosting::getStats() const {
-    return {
-        {"RMSE", rmse_},
-        {"R²", r_squared_}
-    };
+    return stats_;
 }
 
 std::string GradientBoosting::getDescription() const {
@@ -191,15 +188,95 @@ std::tuple<int, double, int> GradientBoosting::gridSearch(
 
 void GradientBoosting::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
+    int n = X.rows();
     
-    // Calculate Root Mean Squared Error (RMSE)
-    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    // Calculate prediction errors
+    Eigen::VectorXd residuals = y - predictions;
+    
+    // Calculate MSE (Mean Squared Error)
+    double mse = residuals.array().square().mean();
+    
+    // Calculate RMSE (Root Mean Squared Error)
+    rmse_ = std::sqrt(mse);
+    
+    // Calculate MAE (Mean Absolute Error)
+    double mae = residuals.array().abs().mean();
     
     // Calculate R-squared
     double y_mean = y.mean();
     double ss_total = (y.array() - y_mean).square().sum();
-    double ss_residual = (y - predictions).array().square().sum();
+    double ss_residual = residuals.array().square().sum();
     r_squared_ = 1.0 - (ss_residual / ss_total);
+    
+    // Calculate feature importance
+    Eigen::VectorXd importance = getFeatureImportance();
+    
+    // Calculate average tree depth and leaf nodes
+    double avg_tree_depth = 0.0;
+    double avg_leaf_nodes = 0.0;
+    
+    for (const auto& tree : trees_) {
+        // Calculate maximum depth of this tree
+        int max_depth = 0;
+        std::function<void(int, int)> computeDepth = [&](int node_idx, int current_depth) {
+            if (node_idx >= 0 && static_cast<size_t>(node_idx) < tree.nodes.size()) {
+                max_depth = std::max(max_depth, current_depth);
+                if (!tree.nodes[node_idx].is_leaf) {
+                    computeDepth(tree.nodes[node_idx].left_child, current_depth + 1);
+                    computeDepth(tree.nodes[node_idx].right_child, current_depth + 1);
+                }
+            }
+        };
+        computeDepth(0, 0);
+        avg_tree_depth += max_depth;
+        
+        // Count leaf nodes
+        int leaf_count = 0;
+        for (const auto& node : tree.nodes) {
+            if (node.is_leaf) {
+                leaf_count++;
+            }
+        }
+        avg_leaf_nodes += leaf_count;
+    }
+    
+    if (!trees_.empty()) {
+        avg_tree_depth /= trees_.size();
+        avg_leaf_nodes /= trees_.size();
+    }
+    
+    // Store all statistics in the stats map
+    stats_ = {
+        {"RMSE", rmse_},
+        {"MSE", mse},
+        {"MAE", mae},
+        {"R²", r_squared_},
+        {"Number of Trees", static_cast<double>(trees_.size())},
+        {"Average Tree Depth", avg_tree_depth},
+        {"Average Leaf Nodes", avg_leaf_nodes},
+        {"Training Loss", mse}, // Using MSE as the training loss
+        {"Learning Rate", learning_rate_},
+        {"Max Tree Depth", static_cast<double>(max_depth_)},
+        {"Min Samples Split", static_cast<double>(min_samples_split_)}
+    };
+    
+    // Store feature importance scores with proper naming
+    if (importance.size() > 0) {
+        for (int i = 0; i < importance.size(); ++i) {
+            stats_["Feature " + std::to_string(i) + " Importance"] = importance(i);
+        }
+    }
+    
+    // Store additional tree-specific statistics
+    for (size_t i = 0; i < trees_.size(); ++i) {
+        int leaf_count = 0;
+        for (const auto& node : trees_[i].nodes) {
+            if (node.is_leaf) {
+                leaf_count++;
+            }
+        }
+        stats_["Tree_" + std::to_string(i) + "_Leaf_Count"] = static_cast<double>(leaf_count);
+    }
 }
 
 GradientBoosting::DecisionTree GradientBoosting::buildTree(
@@ -337,20 +414,37 @@ void GradientBoosting::buildTreeRecursive(
 }
 
 Eigen::VectorXd GradientBoosting::getFeatureImportance() const {
-    // Initialize feature importance vector
-    Eigen::VectorXd importance = Eigen::VectorXd::Zero(trees_[0].nodes.size());
-    
-    // For each tree, count how many times each feature is used for splitting
+    if (trees_.empty()) {
+        return Eigen::VectorXd();
+    }
+
+    // Get number of features from the first tree's first split
+    int n_features = 0;
     for (const auto& tree : trees_) {
         for (const auto& node : tree.nodes) {
             if (!node.is_leaf && node.feature_idx >= 0) {
+                n_features = std::max(n_features, node.feature_idx + 1);
+            }
+        }
+    }
+    
+    // Initialize feature importance vector with correct size
+    Eigen::VectorXd importance = Eigen::VectorXd::Zero(n_features);
+    
+    // For each tree, accumulate importance scores
+    for (const auto& tree : trees_) {
+        for (const auto& node : tree.nodes) {
+            if (!node.is_leaf && node.feature_idx >= 0) {
+                // Add importance based on the number of splits using this feature
                 importance(node.feature_idx) += 1.0;
             }
         }
     }
     
-    // Normalize by the number of trees
-    importance /= trees_.size();
+    // Normalize importance scores
+    if (importance.sum() > 0) {
+        importance /= importance.sum();  // Make them sum to 1
+    }
     
     return importance;
 }

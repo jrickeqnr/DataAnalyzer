@@ -103,10 +103,7 @@ Eigen::VectorXd XGBoost::predict(const Eigen::MatrixXd& X) const {
 }
 
 std::map<std::string, double> XGBoost::getStats() const {
-    return {
-        {"RMSE", rmse_},
-        {"R²", r_squared_}
-    };
+    return stats_;
 }
 
 std::string XGBoost::getDescription() const {
@@ -228,15 +225,105 @@ std::tuple<int, double, int> XGBoost::gridSearch(
 
 void XGBoost::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
+    int n = X.rows();
     
-    // Calculate Root Mean Squared Error (RMSE)
-    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    // Calculate prediction errors
+    Eigen::VectorXd residuals = y - predictions;
+    
+    // Calculate MSE (Mean Squared Error)
+    double mse = residuals.array().square().mean();
+    
+    // Calculate RMSE (Root Mean Squared Error)
+    rmse_ = std::sqrt(mse);
+    
+    // Calculate MAE (Mean Absolute Error)
+    double mae = residuals.array().abs().mean();
     
     // Calculate R-squared
     double y_mean = y.mean();
     double ss_total = (y.array() - y_mean).square().sum();
-    double ss_residual = (y - predictions).array().square().sum();
+    double ss_residual = residuals.array().square().sum();
     r_squared_ = 1.0 - (ss_residual / ss_total);
+    
+    // Calculate feature importance
+    Eigen::VectorXd importance = getFeatureImportance();
+    
+    // Calculate average tree depth and leaf count
+    double avg_depth = 0.0;
+    double avg_leaves = 0.0;
+    
+    for (const auto& tree : trees_) {
+        // Calculate tree depth
+        int max_depth = 0;
+        std::vector<bool> is_leaf(tree.feature_indices.size(), true);
+        
+        for (size_t i = 0; i < tree.feature_indices.size(); ++i) {
+            if (tree.feature_indices[i] >= 0) { // Non-leaf node
+                is_leaf[i] = false;
+                if (i > 0) { // Not root
+                    int parent = (i - 1) / 2;
+                    int depth = 1;
+                    while (parent > 0) {
+                        depth++;
+                        parent = (parent - 1) / 2;
+                    }
+                    max_depth = std::max(max_depth, depth);
+                }
+            }
+        }
+        
+        avg_depth += max_depth;
+        
+        // Count leaf nodes
+        int leaf_count = std::count(is_leaf.begin(), is_leaf.end(), true);
+        avg_leaves += leaf_count;
+    }
+    
+    if (!trees_.empty()) {
+        avg_depth /= trees_.size();
+        avg_leaves /= trees_.size();
+    }
+    
+    // Store all statistics in the stats map
+    stats_ = {
+        {"RMSE", rmse_},
+        {"MSE", mse},
+        {"MAE", mae},
+        {"R²", r_squared_},
+        {"Number of Trees", static_cast<double>(trees_.size())},
+        {"Average Tree Depth", avg_depth},
+        {"Average Leaf Nodes", avg_leaves},
+        {"Training Loss", mse}, // Using MSE as the training loss
+        {"Learning Rate", learning_rate_},
+        {"Max Tree Depth", static_cast<double>(max_depth_)},
+        {"Subsample Ratio", subsample_}
+    };
+    
+    // Store feature importance scores with proper naming
+    if (importance.size() > 0) {
+        for (int i = 0; i < importance.size(); ++i) {
+            stats_["Feature " + std::to_string(i) + " Importance"] = importance(i);
+        }
+    }
+}
+
+double XGBoost::computeAverageTreeDepth() const {
+    double total_depth = 0.0;
+    for (const auto& tree : trees_) {
+        int max_depth = 0;
+        std::function<void(int, int)> computeDepth = [&](int node_idx, int current_depth) {
+            if (node_idx >= 0 && static_cast<size_t>(node_idx) < tree.feature_indices.size()) {
+                max_depth = std::max(max_depth, current_depth);
+                if (tree.feature_indices[node_idx] >= 0) {
+                    computeDepth(tree.left_children[node_idx], current_depth + 1);
+                    computeDepth(tree.right_children[node_idx], current_depth + 1);
+                }
+            }
+        };
+        computeDepth(0, 0);
+        total_depth += max_depth;
+    }
+    return total_depth / trees_.size();
 }
 
 double XGBoost::predictTree(const Tree& tree, const Eigen::VectorXd& x, int node_idx) const {
@@ -416,20 +503,38 @@ void XGBoost::buildRegressionTree(const Eigen::MatrixXd& X,
 }
 
 Eigen::VectorXd XGBoost::getFeatureImportance() const {
-    // Initialize feature importance vector
-    Eigen::VectorXd importance = Eigen::VectorXd::Zero(trees_[0].feature_indices.size());
-    
-    // For each tree, count how many times each feature is used for splitting
+    if (trees_.empty()) {
+        return Eigen::VectorXd();
+    }
+
+    // Get number of features from the first tree's first split
+    int n_features = 0;
     for (const auto& tree : trees_) {
-        for (size_t i = 0; i < tree.feature_indices.size(); ++i) {
-            if (tree.feature_indices[i] >= 0) {  // Skip leaf nodes
-                importance(tree.feature_indices[i]) += 1.0;
+        for (int feature_idx : tree.feature_indices) {
+            if (feature_idx >= 0) {  // Valid feature index
+                n_features = std::max(n_features, feature_idx + 1);
             }
         }
     }
     
-    // Normalize by the number of trees
-    importance /= trees_.size();
+    // Initialize feature importance vector with correct size
+    Eigen::VectorXd importance = Eigen::VectorXd::Zero(n_features);
+    
+    // For each tree, accumulate importance scores
+    for (const auto& tree : trees_) {
+        for (size_t i = 0; i < tree.feature_indices.size(); ++i) {
+            int feature_idx = tree.feature_indices[i];
+            if (feature_idx >= 0) {  // Skip leaf nodes
+                // Add importance based on the number of samples affected by this split
+                importance(feature_idx) += 1.0;
+            }
+        }
+    }
+    
+    // Normalize importance scores
+    if (importance.sum() > 0) {
+        importance /= importance.sum();  // Make them sum to 1
+    }
     
     return importance;
 }

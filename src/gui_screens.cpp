@@ -635,42 +635,220 @@ void GUI::renderHyperparameters() {
         ImGui::Separator();
         ImGui::Text("Model Results");
         ImGui::Separator();
-        
-        // Display R-squared
-        if (modelStats_.find("R²") != modelStats_.end()) {
-            ImGui::Text("R-squared: %.4f", modelStats_["R²"]);
-        }
-        
-        // Display coefficients for linear regression
-        if (selectedModelIndex_ == 0) {
-            ImGui::Text("Model Coefficients:");
+
+        // Create a child window for scrollable results
+        ImGui::BeginChild("ModelResults", ImVec2(0, ImGui::GetWindowHeight() * 0.4f), true);
+
+        // Model Statistics Section
+        if (ImGui::CollapsingHeader("Model Statistics", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Indent(20.0f);
             
-            // Display intercept
-            ImGui::Text("Intercept: %.4f", modelIntercept_);
+            // Display R-squared
+            if (modelStats_.find("R²") != modelStats_.end()) {
+                ImGui::Text("R-squared (R²): %.4f", modelStats_["R²"]);
+                ImGui::TextWrapped("Indicates how well the model fits the data (0-1, higher is better)");
+            }
             
-            // Display feature coefficients
-            for (size_t i = 0; i < featureNames_.size(); ++i) {
-                if (static_cast<Eigen::Index>(i) < modelCoefficients_.size()) {
-                    ImGui::Text("%s: %.4f", featureNames_[i].c_str(), modelCoefficients_(i));
+            // Display RMSE
+            if (modelStats_.find("RMSE") != modelStats_.end()) {
+                ImGui::Text("Root Mean Square Error: %.4f", modelStats_["RMSE"]);
+                ImGui::TextWrapped("Average prediction error in the same units as the target variable");
+            }
+
+            // Display MAE
+            if (modelStats_.find("MAE") != modelStats_.end()) {
+                ImGui::Text("Mean Absolute Error: %.4f", modelStats_["MAE"]);
+                ImGui::TextWrapped("Average absolute prediction error");
+            }
+
+            // Display MSE
+            if (modelStats_.find("MSE") != modelStats_.end()) {
+                ImGui::Text("Mean Squared Error: %.4f", modelStats_["MSE"]);
+                ImGui::TextWrapped("Average squared prediction error");
+            }
+
+            // Tree-based model statistics (XGBoost and Gradient Boosting)
+            if (selectedModelIndex_ == 2 || selectedModelIndex_ == 3) {
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Text("Tree Statistics:");
+                
+                // Number of trees
+                if (modelStats_.find("Number of Trees") != modelStats_.end()) {
+                    ImGui::Text("Number of Trees: %.0f", modelStats_["Number of Trees"]);
+                }
+                
+                // Average tree depth
+                if (modelStats_.find("Average Tree Depth") != modelStats_.end()) {
+                    ImGui::Text("Average Tree Depth: %.2f", modelStats_["Average Tree Depth"]);
+                }
+                
+                // Average leaf nodes
+                if (modelStats_.find("Average Leaf Nodes") != modelStats_.end()) {
+                    ImGui::Text("Average Leaf Nodes per Tree: %.2f", modelStats_["Average Leaf Nodes"]);
+                }
+                
+                // Training loss
+                if (modelStats_.find("Training Loss") != modelStats_.end()) {
+                    ImGui::Text("Training Loss: %.4f", modelStats_["Training Loss"]);
+                }
+                
+                // Learning rate
+                if (modelStats_.find("Learning Rate") != modelStats_.end()) {
+                    ImGui::Text("Learning Rate: %.4f", modelStats_["Learning Rate"]);
+                }
+                
+                // Max tree depth
+                if (modelStats_.find("Max Tree Depth") != modelStats_.end()) {
+                    ImGui::Text("Maximum Tree Depth: %.0f", modelStats_["Max Tree Depth"]);
+                }
+                
+                // XGBoost specific
+                if (selectedModelIndex_ == 2 && modelStats_.find("Subsample Ratio") != modelStats_.end()) {
+                    ImGui::Text("Subsample Ratio: %.2f", modelStats_["Subsample Ratio"]);
+                }
+                
+                // Gradient Boosting specific
+                if (selectedModelIndex_ == 3 && modelStats_.find("Min Samples Split") != modelStats_.end()) {
+                    ImGui::Text("Minimum Samples Split: %.0f", modelStats_["Min Samples Split"]);
                 }
             }
+
             ImGui::Unindent(20.0f);
         }
-        
-        // Display RMSE if available
-        if (modelStats_.find("RMSE") != modelStats_.end()) {
-            ImGui::Text("Root Mean Square Error: %.4f", modelStats_["RMSE"]);
-        }
-        
-        // Show hyperparameter information if auto-tuning was used
-        if (autoHyperparameters_) {
-            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters were found via grid search.");
-            ImGui::Text("Best hyperparameters:");
-            for (const auto& [name, value] : modelHyperparams_) {
-                ImGui::BulletText("%s: %.4f", name.c_str(), value);
+
+        // Model Coefficients Section (for applicable models)
+        if (selectedModelIndex_ == 0 || selectedModelIndex_ == 1) { // Linear Regression or Elastic Net
+            if (ImGui::CollapsingHeader("Model Coefficients", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Indent(20.0f);
+
+                // Display intercept with its standard error if available
+                ImGui::Text("Intercept: %.4f", modelIntercept_);
+                if (modelStats_.find("Intercept SE") != modelStats_.end()) {
+                    ImGui::SameLine();
+                    ImGui::Text("(SE: %.4f)", modelStats_["Intercept SE"]);
+                }
+
+                // Create a table for coefficients and their statistics
+                if (ImGui::BeginTable("CoefficientsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Feature");
+                    ImGui::TableSetupColumn("Coefficient");
+                    ImGui::TableSetupColumn("Std. Error");
+                    ImGui::TableSetupColumn("t-value");
+                    ImGui::TableHeadersRow();
+
+                    for (size_t i = 0; i < featureNames_.size(); ++i) {
+                        if (static_cast<Eigen::Index>(i) < modelCoefficients_.size()) {
+                            ImGui::TableNextRow();
+                            
+                            // Feature name
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%s", featureNames_[i].c_str());
+                            
+                            // Coefficient value
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%.4f", modelCoefficients_(i));
+                            
+                            // Standard Error
+                            ImGui::TableSetColumnIndex(2);
+                            std::string se_key = "SE_" + std::to_string(i);
+                            if (modelStats_.find(se_key) != modelStats_.end()) {
+                                ImGui::Text("%.4f", modelStats_[se_key]);
+                            } else {
+                                ImGui::Text("-");
+                            }
+                            
+                            // t-value
+                            ImGui::TableSetColumnIndex(3);
+                            std::string t_key = "t_value_" + std::to_string(i);
+                            if (modelStats_.find(t_key) != modelStats_.end()) {
+                                ImGui::Text("%.4f", modelStats_[t_key]);
+                            } else {
+                                ImGui::Text("-");
+                            }
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+
+                ImGui::Unindent(20.0f);
             }
         }
+
+        // Feature Importance Section (for tree-based models)
+        if (selectedModelIndex_ == 2 || selectedModelIndex_ == 3) { // XGBoost or Gradient Boosting
+            if (ImGui::CollapsingHeader("Feature Importance", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Indent(20.0f);
+                
+                if (ImGui::BeginTable("ImportanceTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Feature");
+                    ImGui::TableSetupColumn("Importance");
+                    ImGui::TableHeadersRow();
+
+                    // Get feature importance scores
+                    for (size_t i = 0; i < featureNames_.size(); ++i) {
+                        std::string key = "Feature " + std::to_string(i) + " Importance";
+                        if (modelStats_.find(key) != modelStats_.end()) {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%s", featureNames_[i].c_str());
+                            ImGui::TableSetColumnIndex(1);
+                            ImGui::Text("%.4f", modelStats_[key]);
+                        }
+                    }
+                    ImGui::EndTable();
+                }
+
+                ImGui::Unindent(20.0f);
+            }
+        }
+
+        // Neural Network Architecture (if applicable)
+        if (selectedModelIndex_ == 4) { // Neural Network
+            if (ImGui::CollapsingHeader("Network Architecture", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Indent(20.0f);
+                
+                // Display layer information
+                if (modelStats_.find("Layers") != modelStats_.end()) {
+                    ImGui::Text("Number of Layers: %.0f", modelStats_["Layers"]);
+                }
+                if (modelStats_.find("Parameters") != modelStats_.end()) {
+                    ImGui::Text("Total Parameters: %.0f", modelStats_["Parameters"]);
+                }
+                if (modelStats_.find("Training Loss") != modelStats_.end()) {
+                    ImGui::Text("Final Training Loss: %.4f", modelStats_["Training Loss"]);
+                }
+                
+                ImGui::Unindent(20.0f);
+            }
+        }
+
+        // Show hyperparameter information if auto-tuning was used
+        if (autoHyperparameters_) {
+            if (ImGui::CollapsingHeader("Optimal Hyperparameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::Indent(20.0f);
+                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters found via grid search:");
+                
+                if (ImGui::BeginTable("HyperparamsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    ImGui::TableSetupColumn("Parameter");
+                    ImGui::TableSetupColumn("Value");
+                    ImGui::TableHeadersRow();
+
+                    for (const auto& [name, value] : modelHyperparams_) {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("%s", name.c_str());
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%.4f", value);
+                    }
+                    ImGui::EndTable();
+                }
+                
+                ImGui::Unindent(20.0f);
+            }
+        }
+
+        ImGui::EndChild();
     }
     
     ImGui::Spacing();

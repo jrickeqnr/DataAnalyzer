@@ -45,10 +45,7 @@ Eigen::VectorXd LinearRegression::predict(const Eigen::MatrixXd& X) const {
 }
 
 std::map<std::string, double> LinearRegression::getStats() const {
-    return {
-        {"RMSE", rmse_},
-        {"R²", r_squared_}
-    };
+    return stats_;
 }
 
 std::string LinearRegression::getDescription() const {
@@ -70,15 +67,89 @@ std::map<std::string, double> LinearRegression::getHyperparameters() const {
 
 void LinearRegression::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
+    int n = X.rows();
+    int p = X.cols();
     
-    // Calculate Root Mean Squared Error (RMSE)
-    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    // Calculate prediction errors
+    Eigen::VectorXd residuals = y - predictions;
+    
+    // Calculate MSE (Mean Squared Error)
+    double mse = residuals.array().square().mean();
+    
+    // Calculate RMSE (Root Mean Squared Error)
+    rmse_ = std::sqrt(mse);
+    
+    // Calculate MAE (Mean Absolute Error)
+    double mae = residuals.array().abs().mean();
     
     // Calculate R-squared
     double y_mean = y.mean();
     double ss_total = (y.array() - y_mean).square().sum();
-    double ss_residual = (y - predictions).array().square().sum();
+    double ss_residual = residuals.array().square().sum();
     r_squared_ = 1.0 - (ss_residual / ss_total);
+    
+    // Calculate Adjusted R-squared
+    double adj_r_squared = 1.0 - (1.0 - r_squared_) * (n - 1) / (n - p - 1);
+    
+    // Calculate standard errors and t-values
+    // Add column of ones for intercept if needed
+    Eigen::MatrixXd X_with_intercept;
+    if (fit_intercept_) {
+        X_with_intercept = Eigen::MatrixXd::Ones(n, p + 1);
+        X_with_intercept.rightCols(p) = X;
+    } else {
+        X_with_intercept = X;
+    }
+    
+    // Calculate variance-covariance matrix
+    double sigma2 = ss_residual / (n - p - 1); // Unbiased estimate of error variance
+    Eigen::MatrixXd cov_matrix = sigma2 * (X_with_intercept.transpose() * X_with_intercept).inverse();
+    
+    // Calculate standard errors
+    Eigen::VectorXd std_errors = cov_matrix.diagonal().array().sqrt();
+    
+    // Calculate t-values
+    Eigen::VectorXd t_values;
+    if (fit_intercept_) {
+        t_values = Eigen::VectorXd(p + 1);
+        t_values(0) = intercept_ / std_errors(0);
+        t_values.tail(p) = coefficients_.array() / std_errors.tail(p).array();
+    } else {
+        t_values = coefficients_.array() / std_errors.array();
+    }
+    
+    // Calculate AIC and BIC
+    double aic = n * std::log(ss_residual / n) + 2 * (p + 1);
+    double bic = n * std::log(ss_residual / n) + std::log(n) * (p + 1);
+    
+    // Store all statistics in the stats map
+    stats_ = {
+        {"RMSE", rmse_},
+        {"MSE", mse},
+        {"MAE", mae},
+        {"R²", r_squared_},
+        {"Adjusted R²", adj_r_squared},
+        {"AIC", aic},
+        {"BIC", bic}
+    };
+    
+    // Store intercept statistics if applicable
+    if (fit_intercept_) {
+        stats_["Intercept SE"] = std_errors(0);
+        stats_["Intercept t-value"] = t_values(0);
+        
+        // Store coefficient statistics
+        for (int i = 0; i < p; ++i) {
+            stats_["SE_" + std::to_string(i)] = std_errors(i + 1);
+            stats_["t_value_" + std::to_string(i)] = t_values(i + 1);
+        }
+    } else {
+        // Store coefficient statistics without intercept
+        for (int i = 0; i < p; ++i) {
+            stats_["SE_" + std::to_string(i)] = std_errors(i);
+            stats_["t_value_" + std::to_string(i)] = t_values(i);
+        }
+    }
 }
 
 } // namespace DataAnalyzer 

@@ -126,10 +126,7 @@ Eigen::VectorXd NeuralNetwork::predict(const Eigen::MatrixXd& X) const {
 }
 
 std::map<std::string, double> NeuralNetwork::getStats() const {
-    return {
-        {"RMSE", rmse_},
-        {"R²", r_squared_}
-    };
+    return stats_;
 }
 
 std::string NeuralNetwork::getDescription() const {
@@ -271,15 +268,58 @@ std::tuple<std::vector<int>, double, double> NeuralNetwork::gridSearch(
 
 void NeuralNetwork::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     Eigen::VectorXd predictions = predict(X);
+    int n = X.rows();
     
-    // Calculate Root Mean Squared Error (RMSE)
-    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    // Calculate prediction errors
+    Eigen::VectorXd residuals = y - predictions;
+    
+    // Calculate MSE (Mean Squared Error)
+    double mse = residuals.array().square().mean();
+    
+    // Calculate RMSE (Root Mean Squared Error)
+    rmse_ = std::sqrt(mse);
+    
+    // Calculate MAE (Mean Absolute Error)
+    double mae = residuals.array().abs().mean();
     
     // Calculate R-squared
     double y_mean = y.mean();
     double ss_total = (y.array() - y_mean).square().sum();
-    double ss_residual = (y - predictions).array().square().sum();
+    double ss_residual = residuals.array().square().sum();
     r_squared_ = 1.0 - (ss_residual / ss_total);
+    
+    // Calculate network architecture statistics
+    int total_layers = hidden_layer_sizes_.size() + 2; // Input + Hidden + Output
+    int total_params = 0;
+    
+    // Count parameters (weights and biases)
+    int prev_layer_size = X.cols(); // Input layer size
+    for (int hidden_size : hidden_layer_sizes_) {
+        total_params += prev_layer_size * hidden_size; // Weights
+        total_params += hidden_size;                   // Biases
+        prev_layer_size = hidden_size;
+    }
+    total_params += prev_layer_size * 1; // Output layer weights
+    total_params += 1;                   // Output layer bias
+    
+    // Store all statistics in the stats map
+    stats_ = {
+        {"RMSE", rmse_},
+        {"MSE", mse},
+        {"MAE", mae},
+        {"R²", r_squared_},
+        {"Layers", static_cast<double>(total_layers)},
+        {"Parameters", static_cast<double>(total_params)},
+        {"Training Loss", mse}, // Using MSE as the training loss
+        {"Learning Rate", learning_rate_}
+    };
+    
+    // Store layer sizes
+    stats_["Input Layer"] = static_cast<double>(X.cols());
+    for (size_t i = 0; i < hidden_layer_sizes_.size(); ++i) {
+        stats_["Hidden Layer " + std::to_string(i + 1)] = static_cast<double>(hidden_layer_sizes_[i]);
+    }
+    stats_["Output Layer"] = 1.0;
 }
 
 Eigen::VectorXd NeuralNetwork::forwardPass(const Eigen::MatrixXd& X) const {
