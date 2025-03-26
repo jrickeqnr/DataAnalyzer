@@ -7,7 +7,12 @@ A portable C++ data analysis program designed to preprocess time series data and
 - **Portable**: No external dependencies like Python or Matplotlib required.
 - **Interactive GUI**: Easy to use interface built with Dear ImGui and GLFW.
 - **Preprocessing**: Date parsing, frequency detection, outlier handling.
-- **Modeling**: Elastic Net regression (L1/L2 regularization mix).
+- **Multiple Regression Models**:
+  - Linear Regression - Standard ordinary least squares regression
+  - Elastic Net - Regression with L1 and L2 regularization
+  - XGBoost - Extreme Gradient Boosting regression
+  - Gradient Boosting - Gradient Boosting regression
+  - Neural Network - Multi-layer Perceptron regressor
 - **Visualization**: Time series plots with ImPlot.
 - **Export**: Save predictions and model statistics for further analysis.
 
@@ -62,8 +67,12 @@ The application follows a sequential workflow through six screens:
    - Choose to fix outliers by interpolation or keep them as is.
 
 3. **Model Selection**:
-   - Currently only supports Elastic Net regression.
-   - More models will be added in future versions.
+   - Choose from multiple regression models including:
+     - Linear Regression
+     - Elastic Net (with L1/L2 regularization mix)
+     - XGBoost
+     - Gradient Boosting
+     - Neural Network
 
 4. **Variable Selection**:
    - Select which features (independent variables) to use.
@@ -71,13 +80,40 @@ The application follows a sequential workflow through six screens:
    - Enable seasonality to add sin/cos features based on detected frequency.
 
 5. **Hyperparameter Configuration**:
-   - Manually set alpha and lambda parameters.
-   - Use automatic tuning with grid search.
-   - Train the model and view performance statistics.
+   - Manually set model-specific parameters.
+   - Use automatic tuning with grid search and cross-validation.
+   - Train the model and view performance statistics (RMSE and R-squared).
 
 6. **Results Visualization**:
    - View time series plots of actual vs. predicted values.
    - Export results and model statistics for further analysis.
+
+## Model API Usage
+
+All models follow a common interface defined in `include/model.h`:
+
+```cpp
+#include "../include/model.h"
+
+// Create a model (example with ElasticNet)
+DataAnalyzer::ElasticNet model(0.5, 1.0);
+
+// Train the model
+model.train(X, y);
+
+// Make predictions
+Eigen::VectorXd predictions = model.predict(X_test);
+
+// Get statistics
+auto stats = model.getStats();
+std::cout << "RMSE: " << stats["RMSE"] << std::endl;
+std::cout << "R²: " << stats["R²"] << std::endl;
+
+// Tune hyperparameters
+std::vector<double> alpha_values = {0.1, 0.5, 0.9};
+std::vector<double> lambda_values = {0.1, 1.0, 10.0};
+auto [best_alpha, best_lambda] = model.gridSearch(X, y, alpha_values, lambda_values);
+```
 
 ## CSV File Format
 
@@ -104,7 +140,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Future Development
 
-- Additional models (Random Forest, Neural Networks, etc.)
+- Additional models and enhancements to existing ones
 - More plot types (scatter plots, bar charts, etc.)
 - Advanced data transformations
 - Support for categorical variables

@@ -80,8 +80,23 @@ private:
     std::vector<size_t> selectedFeatures_;
     std::vector<size_t> selectedTargetIndices_;
     bool includeSeasonality_ = false;
+    
+    // Model hyperparameters
+    // Elastic Net
     double alpha_ = 0.5;
     double lambda_ = 1.0;
+    
+    // XGBoost & Gradient Boosting
+    int n_estimators_ = 100;
+    double learning_rate_ = 0.1;
+    int max_depth_ = 3;
+    double subsample_ = 0.8;
+    
+    // Neural Network
+    int hidden_layers_ = 1;
+    int neurons_per_layer_ = 10;
+    int max_iterations_ = 1000;
+    
     bool autoHyperparameters_ = false;
     Eigen::VectorXd predictions_;
     std::string exportDir_;

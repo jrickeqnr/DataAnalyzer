@@ -15,11 +15,16 @@ endif()
 # Add source files
 set(SOURCES
     src/main.cpp
-    src/model.cpp
     src/data_handler.cpp
     src/gui.cpp
     src/gui_screens.cpp  # Separate file for screen implementations
     src/plotting.cpp
+    # Model implementations
+    src/models/linear_regression.cpp
+    src/models/elasticnet.cpp
+    src/models/xgboost.cpp
+    src/models/gradient_boosting.cpp
+    src/models/neural_network.cpp
 )
 
 # Add header files

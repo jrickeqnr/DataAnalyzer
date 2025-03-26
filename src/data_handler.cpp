@@ -503,6 +503,38 @@ std::vector<Date> DataHandler::getDates() const {
     return dates_;
 }
 
+Eigen::MatrixXd DataHandler::getSelectedFeatures(const std::vector<size_t>& featureIndices) const {
+    if (featureIndices.empty() || numericData_.rows() == 0) {
+        return Eigen::MatrixXd(0, 0);
+    }
+    
+    // Create a matrix with rows = number of samples, cols = number of selected features
+    Eigen::MatrixXd selectedFeatures(numericData_.rows(), featureIndices.size());
+    
+    // Copy the selected columns
+    for (size_t i = 0; i < featureIndices.size(); ++i) {
+        size_t colIdx = featureIndices[i];
+        // Ensure the column index is valid
+        if (colIdx < static_cast<size_t>(numericData_.cols())) {
+            selectedFeatures.col(i) = numericData_.col(colIdx);
+        } else {
+            // If invalid column index, fill with zeros
+            selectedFeatures.col(i).setZero();
+        }
+    }
+    
+    return selectedFeatures;
+}
+
+Eigen::VectorXd DataHandler::getSelectedTarget(size_t targetIndex) const {
+    if (numericData_.rows() == 0 || targetIndex >= static_cast<size_t>(numericData_.cols())) {
+        return Eigen::VectorXd(0);
+    }
+    
+    // Extract the target column
+    return numericData_.col(targetIndex);
+}
+
 bool DataHandler::exportToCSV(const std::string& filepath) const {
     try {
         std::ofstream file(filepath);

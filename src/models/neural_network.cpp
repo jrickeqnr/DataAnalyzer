@@ -1,0 +1,373 @@
+#include "../../include/model.h"
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <random>
+#include <limits>
+
+namespace DataAnalyzer {
+
+NeuralNetwork::NeuralNetwork(const std::vector<int>& hidden_layer_sizes,
+                             double learning_rate, int max_iter,
+                             double alpha)
+    : hidden_layer_sizes_(hidden_layer_sizes), learning_rate_(learning_rate),
+      max_iter_(max_iter), alpha_(alpha), rmse_(0.0), r_squared_(0.0) {
+}
+
+bool NeuralNetwork::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
+    if (X.rows() != y.rows() || X.rows() == 0) {
+        return false;
+    }
+    
+    // Store data dimensions
+    int n_samples = X.rows();
+    int n_features = X.cols();
+    
+    // Normalize features
+    X_mean_ = X.colwise().mean();
+    X_std_ = ((X.rowwise() - X_mean_.transpose()).array().square().colwise().sum() / n_samples).sqrt();
+    
+    // Handle zero standard deviation
+    for (int i = 0; i < X_std_.size(); ++i) {
+        if (X_std_(i) < 1e-10) {
+            X_std_(i) = 1.0;
+        }
+    }
+    
+    Eigen::MatrixXd X_scaled = (X.rowwise() - X_mean_.transpose()).array().rowwise() / X_std_.transpose().array();
+    
+    // Normalize target
+    y_mean_ = y.mean();
+    y_std_ = std::sqrt((y.array() - y_mean_).square().sum() / n_samples);
+    if (y_std_ < 1e-10) {
+        y_std_ = 1.0;
+    }
+    
+    Eigen::VectorXd y_scaled = (y.array() - y_mean_) / y_std_;
+    
+    // Initialize random number generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::normal_distribution<> dist(0.0, 0.1);
+    
+    // Set up the network architecture
+    std::vector<int> layer_sizes;
+    layer_sizes.push_back(n_features);
+    for (int hidden_size : hidden_layer_sizes_) {
+        layer_sizes.push_back(hidden_size);
+    }
+    layer_sizes.push_back(1); // Output layer (regression)
+    
+    // Initialize weights and biases
+    weights_.resize(layer_sizes.size() - 1);
+    biases_.resize(layer_sizes.size() - 1);
+    
+    for (size_t i = 0; i < weights_.size(); ++i) {
+        // He initialization
+        double scale = std::sqrt(2.0 / layer_sizes[i]);
+        
+        weights_[i] = Eigen::MatrixXd(layer_sizes[i + 1], layer_sizes[i]);
+        biases_[i] = Eigen::VectorXd::Zero(layer_sizes[i + 1]);
+        
+        // Initialize weights with random values
+        for (int r = 0; r < weights_[i].rows(); ++r) {
+            for (int c = 0; c < weights_[i].cols(); ++c) {
+                weights_[i](r, c) = dist(gen) * scale;
+            }
+        }
+    }
+    
+    // Train the network using mini-batch gradient descent
+    int batch_size = std::min(200, n_samples);
+    int n_batches = (n_samples + batch_size - 1) / batch_size; // Ceiling division
+    
+    // For each epoch
+    for (int iter = 0; iter < max_iter_; ++iter) {
+        // Shuffle the data
+        std::vector<int> indices(n_samples);
+        std::iota(indices.begin(), indices.end(), 0);
+        std::shuffle(indices.begin(), indices.end(), gen);
+        
+        // Process each mini-batch
+        for (int batch = 0; batch < n_batches; ++batch) {
+            int start_idx = batch * batch_size;
+            int end_idx = std::min(start_idx + batch_size, n_samples);
+            int current_batch_size = end_idx - start_idx;
+            
+            // Prepare batch data
+            Eigen::MatrixXd X_batch(current_batch_size, n_features);
+            Eigen::VectorXd y_batch(current_batch_size);
+            
+            for (int i = 0; i < current_batch_size; ++i) {
+                X_batch.row(i) = X_scaled.row(indices[start_idx + i]);
+                y_batch(i) = y_scaled(indices[start_idx + i]);
+            }
+            
+            // Forward pass and backpropagation
+            backpropagate(X_batch, y_batch);
+        }
+    }
+    
+    // Compute final statistics
+    computeStats(X, y);
+    
+    return true;
+}
+
+Eigen::VectorXd NeuralNetwork::predict(const Eigen::MatrixXd& X) const {
+    // Scale input features
+    Eigen::MatrixXd X_scaled = (X.rowwise() - X_mean_.transpose()).array().rowwise() / X_std_.transpose().array();
+    
+    // Forward pass through the network
+    Eigen::VectorXd predictions = forwardPass(X_scaled);
+    
+    // Rescale predictions back to original scale
+    return predictions.array() * y_std_ + y_mean_;
+}
+
+std::map<std::string, double> NeuralNetwork::getStats() const {
+    return {
+        {"RMSE", rmse_},
+        {"R²", r_squared_}
+    };
+}
+
+std::string NeuralNetwork::getDescription() const {
+    return "Neural Network Regressor (Multi-layer Perceptron) is a deep learning model "
+           "that consists of multiple layers of neurons with non-linear activation functions. "
+           "It can model complex non-linear relationships between features and target variables. "
+           "This implementation uses ReLU activation for hidden layers and mini-batch gradient descent.";
+}
+
+Eigen::VectorXd NeuralNetwork::getCoefficients() const {
+    // Neural networks don't have coefficients in the traditional sense
+    // Return weights of the first layer as a proxy
+    if (!weights_.empty()) {
+        Eigen::MatrixXd first_layer_weights = weights_[0];
+        Eigen::VectorXd flattened(first_layer_weights.rows() * first_layer_weights.cols());
+        
+        int idx = 0;
+        for (int r = 0; r < first_layer_weights.rows(); ++r) {
+            for (int c = 0; c < first_layer_weights.cols(); ++c) {
+                flattened(idx++) = first_layer_weights(r, c);
+            }
+        }
+        
+        return flattened;
+    }
+    
+    return Eigen::VectorXd();
+}
+
+std::map<std::string, double> NeuralNetwork::getHyperparameters() const {
+    std::map<std::string, double> hyperparams;
+    
+    hyperparams["learning_rate"] = learning_rate_;
+    hyperparams["max_iterations"] = static_cast<double>(max_iter_);
+    hyperparams["alpha"] = alpha_;
+    
+    // Add hidden layer sizes
+    for (size_t i = 0; i < hidden_layer_sizes_.size(); ++i) {
+        hyperparams["hidden_layer_" + std::to_string(i + 1) + "_size"] = 
+            static_cast<double>(hidden_layer_sizes_[i]);
+    }
+    
+    return hyperparams;
+}
+
+std::tuple<std::vector<int>, double, double> NeuralNetwork::gridSearch(
+    const Eigen::MatrixXd& X, 
+    const Eigen::VectorXd& y,
+    const std::vector<std::vector<int>>& hidden_layer_sizes_values,
+    const std::vector<double>& learning_rate_values,
+    const std::vector<double>& alpha_values,
+    int k) {
+    
+    if (X.rows() != y.rows() || hidden_layer_sizes_values.empty() || 
+        learning_rate_values.empty() || alpha_values.empty() || k <= 1) {
+        return {hidden_layer_sizes_, learning_rate_, alpha_};
+    }
+    
+    // Prepare k-fold cross-validation indices
+    std::vector<int> indices(X.rows());
+    std::iota(indices.begin(), indices.end(), 0);
+    
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(indices.begin(), indices.end(), g);
+    
+    // Best hyperparameters
+    std::vector<int> best_hidden_layer_sizes = hidden_layer_sizes_;
+    double best_learning_rate = learning_rate_;
+    double best_alpha = alpha_;
+    double best_rmse = std::numeric_limits<double>::max();
+    
+    // Grid search
+    for (const auto& hidden_layer_sizes : hidden_layer_sizes_values) {
+        for (double learning_rate : learning_rate_values) {
+            for (double alpha : alpha_values) {
+                double fold_rmse_sum = 0.0;
+                
+                // K-fold cross-validation
+                for (int fold = 0; fold < k; ++fold) {
+                    // Split data into training and validation sets
+                    int fold_size = X.rows() / k;
+                    int start_idx = fold * fold_size;
+                    int end_idx = (fold == k - 1) ? X.rows() : (fold + 1) * fold_size;
+                    
+                    // Create validation set
+                    std::vector<int> val_indices(indices.begin() + start_idx, indices.begin() + end_idx);
+                    
+                    // Create training set (all indices not in validation set)
+                    std::vector<int> train_indices;
+                    for (int i = 0; i < X.rows(); ++i) {
+                        if (i < start_idx || i >= end_idx) {
+                            train_indices.push_back(i);
+                        }
+                    }
+                    
+                    // Prepare train/val matrices
+                    Eigen::MatrixXd X_train(train_indices.size(), X.cols());
+                    Eigen::VectorXd y_train(train_indices.size());
+                    Eigen::MatrixXd X_val(val_indices.size(), X.cols());
+                    Eigen::VectorXd y_val(val_indices.size());
+                    
+                    for (size_t i = 0; i < train_indices.size(); ++i) {
+                        X_train.row(i) = X.row(train_indices[i]);
+                        y_train(i) = y(train_indices[i]);
+                    }
+                    
+                    for (size_t i = 0; i < val_indices.size(); ++i) {
+                        X_val.row(i) = X.row(val_indices[i]);
+                        y_val(i) = y(val_indices[i]);
+                    }
+                    
+                    // Train model with current hyperparameters
+                    NeuralNetwork model(hidden_layer_sizes, learning_rate, max_iter_, alpha);
+                    model.train(X_train, y_train);
+                    
+                    // Evaluate on validation set
+                    Eigen::VectorXd predictions = model.predict(X_val);
+                    double fold_rmse = std::sqrt((predictions - y_val).array().square().mean());
+                    fold_rmse_sum += fold_rmse;
+                }
+                
+                // Average RMSE across all folds
+                double avg_rmse = fold_rmse_sum / k;
+                
+                // Update best hyperparameters if RMSE is improved
+                if (avg_rmse < best_rmse) {
+                    best_rmse = avg_rmse;
+                    best_hidden_layer_sizes = hidden_layer_sizes;
+                    best_learning_rate = learning_rate;
+                    best_alpha = alpha;
+                }
+            }
+        }
+    }
+    
+    return {best_hidden_layer_sizes, best_learning_rate, best_alpha};
+}
+
+void NeuralNetwork::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
+    Eigen::VectorXd predictions = predict(X);
+    
+    // Calculate Root Mean Squared Error (RMSE)
+    rmse_ = std::sqrt((predictions - y).array().square().mean());
+    
+    // Calculate R-squared
+    double y_mean = y.mean();
+    double ss_total = (y.array() - y_mean).square().sum();
+    double ss_residual = (y - predictions).array().square().sum();
+    r_squared_ = 1.0 - (ss_residual / ss_total);
+}
+
+Eigen::VectorXd NeuralNetwork::forwardPass(const Eigen::MatrixXd& X) const {
+    Eigen::MatrixXd activations = X;
+    
+    // Process all layers except the output layer
+    for (size_t i = 0; i < weights_.size() - 1; ++i) {
+        // Linear transformation: Z = W * X + b
+        Eigen::MatrixXd Z = (activations * weights_[i].transpose()).rowwise() + biases_[i].transpose();
+        
+        // Apply ReLU activation function
+        activations = Z.array().max(0.0);
+    }
+    
+    // Output layer (linear activation for regression)
+    size_t last = weights_.size() - 1;
+    Eigen::VectorXd output = (activations * weights_[last].transpose()).rowwise() + biases_[last].transpose();
+    
+    return output;
+}
+
+void NeuralNetwork::backpropagate(const Eigen::MatrixXd& X_batch, const Eigen::VectorXd& y_batch) {
+    int batch_size = X_batch.rows();
+    
+    // Forward pass with stored activations
+    std::vector<Eigen::MatrixXd> layer_inputs; // Before activation
+    std::vector<Eigen::MatrixXd> activations;  // After activation
+    
+    activations.push_back(X_batch); // Input layer
+    
+    // Forward pass through hidden layers
+    for (size_t i = 0; i < weights_.size() - 1; ++i) {
+        Eigen::MatrixXd Z = (activations.back() * weights_[i].transpose()).rowwise() + biases_[i].transpose();
+        layer_inputs.push_back(Z);
+        
+        // Apply ReLU activation
+        Eigen::MatrixXd A = Z.array().max(0.0);
+        activations.push_back(A);
+    }
+    
+    // Output layer
+    size_t last = weights_.size() - 1;
+    Eigen::MatrixXd Z_output = (activations.back() * weights_[last].transpose()).rowwise() + biases_[last].transpose();
+    layer_inputs.push_back(Z_output);
+    activations.push_back(Z_output); // Linear activation for output layer
+    
+    // Backpropagation
+    // Initialize weight and bias gradients
+    std::vector<Eigen::MatrixXd> dW(weights_.size());
+    std::vector<Eigen::VectorXd> db(biases_.size());
+    
+    // Output layer error
+    Eigen::MatrixXd delta = activations.back() - y_batch;
+    
+    // Compute gradients for output layer
+    dW[last] = (delta.transpose() * activations[activations.size() - 2]) / batch_size;
+    db[last] = delta.colwise().sum() / batch_size;
+    
+    // Add L2 regularization to output layer weights
+    dW[last].array() += alpha_ * weights_[last].array();
+    
+    // Backpropagate error through hidden layers
+    for (int i = static_cast<int>(weights_.size()) - 2; i >= 0; --i) {
+        // Compute delta for current layer
+        delta = (delta * weights_[i + 1]).array() * 
+                (layer_inputs[i].array() > 0.0).cast<double>(); // ReLU derivative
+        
+        // Compute gradients
+        dW[i] = (delta.transpose() * activations[i]) / batch_size;
+        db[i] = delta.colwise().sum() / batch_size;
+        
+        // Add L2 regularization
+        dW[i].array() += alpha_ * weights_[i].array();
+    }
+    
+    // Update weights and biases using gradient descent
+    for (size_t i = 0; i < weights_.size(); ++i) {
+        weights_[i] -= learning_rate_ * dW[i];
+        biases_[i] -= learning_rate_ * db[i];
+    }
+}
+
+double NeuralNetwork::relu(double x) const {
+    return std::max(0.0, x);
+}
+
+double NeuralNetwork::reluDerivative(double x) const {
+    return x > 0.0 ? 1.0 : 0.0;
+}
+
+} // namespace DataAnalyzer 

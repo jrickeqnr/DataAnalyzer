@@ -134,6 +134,20 @@ public:
     std::vector<Date> getDates() const;
     
     /**
+     * @brief Get selected features as an Eigen matrix
+     * @param featureIndices Indices of columns to use as features
+     * @return Eigen::MatrixXd Matrix with selected features
+     */
+    Eigen::MatrixXd getSelectedFeatures(const std::vector<size_t>& featureIndices) const;
+    
+    /**
+     * @brief Get selected target as an Eigen vector
+     * @param targetIndex Index of column to use as target
+     * @return Eigen::VectorXd Vector with selected target
+     */
+    Eigen::VectorXd getSelectedTarget(size_t targetIndex) const;
+    
+    /**
      * @brief Export the data to a CSV file
      * @param filepath Path to the output CSV file
      * @return bool True if export was successful
