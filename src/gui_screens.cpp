@@ -36,6 +36,8 @@ void GUI::renderFileBrowser() {
     }
     
     if (showFileDialog) {
+        // Set the file dialog window position to be further right
+        ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.3f, 0.0f));
         if (ImGuiFileDialog::fileDialog(selectedFilePath_, "Select CSV File", ".csv")) {
             showFileDialog = false;
             
