@@ -358,6 +358,10 @@ void GUI::setupImGuiStyle() {
 void GUI::renderMainMenu() {
     if (ImGui::BeginMenuBar()) {
         if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Home", "Ctrl+H")) {
+                setScreen(Screen::FILE_BROWSER);
+            }
+            
             if (ImGui::MenuItem("Load CSV", "Ctrl+O")) {
                 setScreen(Screen::FILE_BROWSER);
             }
