@@ -31,23 +31,11 @@ A portable C++ data analysis program designed to replace existing data analysis 
 
 ## Build Instructions
 
-### Clone the repository
+### Clone the repository with dependencies
 
 ```bash
-git clone <repository-url>
-cd DataAnalyzerCpp
-```
-
-### Install dependencies with git on HTTPS
-
-```bash
-mkdir lib
-cd lib
-git clone https://gitlab.com/libeigen/eigen.git
-git clone https://github.com/ben-strasser/fast-cpp-csv-parser.git
-git clone https://github.com/ocornut/imgui.git
-git clone https://github.com/epezent/implot.git
-git clone https://github.com/glfw/glfw.git
+git clone --recurse-submodules git@github.com:jrickeqnr/DataAnalyzer.git
+cd DataAnalyzer
 ```
 
 ### Build with CMake
