@@ -1,6 +1,6 @@
-# DataAnalyzerCpp
+# DataAnalyzer
 
-A portable C++ data analysis program designed to preprocess time series data and feed it into AI models. This application provides a complete GUI workflow for data loading, outlier detection, model training, and result visualization.
+A portable C++ data analysis program designed to replace existing data analysis workflows in Equinor. This application provides a complete GUI workflow for data loading, outlier detection, model training, and result visualization.
 
 ## Features
 
@@ -11,9 +11,8 @@ A portable C++ data analysis program designed to preprocess time series data and
   - Linear Regression - Standard ordinary least squares regression
   - Elastic Net - Regression with L1 and L2 regularization
   - XGBoost - Extreme Gradient Boosting regression
-  - Gradient Boosting - Gradient Boosting regression
   - Neural Network - Multi-layer Perceptron regressor
-- **Visualization**: Time series plots with ImPlot.
+- **Visualization**: Multiple visualizations per model including scatterplot, timeseries, feature importance
 - **Export**: Save predictions and model statistics for further analysis.
 
 ## Requirements
@@ -37,6 +36,18 @@ A portable C++ data analysis program designed to preprocess time series data and
 ```bash
 git clone <repository-url>
 cd DataAnalyzerCpp
+```
+
+### Install dependencies with git on HTTPS
+
+```bash
+mkdir lib
+cd lib
+git clone https://gitlab.com/libeigen/eigen.git
+git clone https://github.com/ben-strasser/fast-cpp-csv-parser.git
+git clone https://github.com/ocornut/imgui.git
+git clone https://github.com/epezent/implot.git
+git clone https://github.com/glfw/glfw.git
 ```
 
 ### Build with CMake
@@ -77,7 +88,6 @@ The application follows a sequential workflow through six screens:
 4. **Variable Selection**:
    - Select which features (independent variables) to use.
    - Choose a target (dependent variable) for prediction.
-   - Enable seasonality to add sin/cos features based on detected frequency.
 
 5. **Hyperparameter Configuration**:
    - Manually set model-specific parameters.
@@ -118,13 +128,14 @@ auto [best_alpha, best_lambda] = model.gridSearch(X, y, alpha_values, lambda_val
 ## CSV File Format
 
 The application expects CSV files with the following characteristics:
+
 - At least one date column (it will try to detect this automatically).
 - One or more numeric columns for features and target variables.
 - A header row with column names.
 
 Example:
 
-```
+```txt
 Date,Temperature,Humidity,Energy_Consumption
 2023-01-01,10.5,65.2,120.3
 2023-01-02,11.2,67.5,122.1

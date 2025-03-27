@@ -1,4 +1,4 @@
 build/
 results/
 build_windows/
-lib/
+product.csv
