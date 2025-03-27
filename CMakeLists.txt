@@ -60,6 +60,8 @@ elseif(UNIX AND NOT APPLE)
     target_link_libraries(DataAnalyzer PRIVATE X11 dl pthread)
 elseif(WIN32)
     # Windows-specific settings
+    set(APP_ICON_RESOURCE_WINDOWS "${CMAKE_CURRENT_SOURCE_DIR}/app_icon.rc")
+    target_sources(DataAnalyzer PRIVATE ${APP_ICON_RESOURCE_WINDOWS})
     target_compile_definitions(DataAnalyzer PRIVATE 
         _CRT_SECURE_NO_WARNINGS
         NOMINMAX  # Prevents Windows' min/max macros from conflicting with std::min/max
@@ -103,6 +105,12 @@ target_link_libraries(DataAnalyzer PRIVATE
     glfw
 )
 
+# Copy resources directory to build directory
+file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+# Install resources with your application
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/DataAnalyzer)
 # Installation
 install(TARGETS DataAnalyzer DESTINATION bin)
 

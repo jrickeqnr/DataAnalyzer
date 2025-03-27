@@ -311,18 +311,6 @@ void GUI::run() {
             case Screen::PLOTTING:
                 renderPlotting();
                 break;
-            case Screen::DATA_VIEWER:
-                // TODO: Implement data viewer screen
-                ImGui::Text("Data Viewer screen not yet implemented");
-                break;
-            case Screen::MODEL_TRAINING:
-                // TODO: Implement model training screen
-                ImGui::Text("Model Training screen not yet implemented");
-                break;
-            case Screen::PREDICTIONS:
-                // TODO: Implement predictions screen
-                ImGui::Text("Predictions screen not yet implemented");
-                break;
         }
         
         ImGui::End();
@@ -542,7 +530,7 @@ void GUI::renderMainMenu() {
         
         // Status information on the right
         ImGui::SetCursorPosX(ImGui::GetWindowWidth() - 150);
-        ImGui::Text("Screen: %d/6", static_cast<int>(currentScreen_) + 1);
+        ImGui::Text("Equinor Data Analysis");
         
         ImGui::EndMenuBar();
     }
