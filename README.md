@@ -123,6 +123,7 @@ The application expects CSV files with the following characteristics:
 - A header row with column names.
 
 Example:
+
 ```
 Date,Temperature,Humidity,Energy_Consumption
 2023-01-01,10.5,65.2,120.3
@@ -144,4 +145,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - More plot types (scatter plots, bar charts, etc.)
 - Advanced data transformations
 - Support for categorical variables
-- Time series forecasting with confidence intervals 
+- Time series forecasting with confidence intervals

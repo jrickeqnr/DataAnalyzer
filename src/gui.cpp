@@ -349,7 +349,10 @@ void GUI::setScreen(Screen screen) {
         selectedFeatures_.clear();
         selectedTargetIndices_.clear();
         model_.reset();
-        plotManager_.reset();
+        if (plotManager_) {
+            plotManager_->reset();
+            plotManager_.reset();  // Reset the shared_ptr itself
+        }
         predictions_ = Eigen::VectorXd();
     }
     currentScreen_ = screen;
@@ -444,7 +447,10 @@ void GUI::renderMainMenu() {
                 selectedFeatures_.clear();
                 selectedTargetIndices_.clear();
                 model_.reset();
-                plotManager_->reset();
+                if (plotManager_) {
+                    plotManager_->reset();
+                    plotManager_.reset();  // Reset the shared_ptr itself
+                }
                 predictions_ = Eigen::VectorXd();
                 setScreen(Screen::FILE_BROWSER);
             }

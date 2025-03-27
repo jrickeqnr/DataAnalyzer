@@ -51,38 +51,32 @@ void TimeSeries::render() {
         return;
     }
     
-    // Get date strings for x-axis
-    std::vector<std::string> dateStrings = getDateStrings();
-    
-    // Convert date strings to char* array for ImPlot
-    std::vector<const char*> labels(dateStrings.size());
-    for (size_t i = 0; i < dateStrings.size(); ++i) {
-        labels[i] = dateStrings[i].c_str();
-    }
-    
     // Convert Eigen vectors to std::vector for ImPlot
     std::vector<double> actual(actualValues_.data(), actualValues_.data() + actualValues_.size());
     std::vector<double> predicted(predictedValues_.data(), predictedValues_.data() + predictedValues_.size());
     
-    // Create x-axis values (0, 1, 2, ...)
-    std::vector<double> xs(actual.size());
-    std::iota(xs.begin(), xs.end(), 0.0);
+    // Convert dates to timestamps for ImPlot's time axis
+    std::vector<double> timestamps;
+    timestamps.reserve(dates_.size());
+    for (const auto& date : dates_) {
+        timestamps.push_back(date.toTimestamp());
+    }
     
     // Set up plot parameters
     if (ImPlot::BeginPlot(title_.c_str(), ImVec2(-1, -1), ImPlotFlags_NoMouseText)) {
-        // Set axis labels
-        ImPlot::SetupAxes(xLabel_.c_str(), yLabel_.c_str());
-        
-        // Set x-axis tick labels to be dates
-        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), xs.size(), labels.data());
+        // Set up axes with time formatting for x-axis
+        ImPlot::SetupAxisFormat(ImAxis_X1, "%m/%d/%y");
+        ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Time);
+        ImPlot::SetupAxis(ImAxis_X1, xLabel_.c_str());
+        ImPlot::SetupAxis(ImAxis_Y1, yLabel_.c_str());
         
         // Plot actual values
         ImPlot::SetNextMarkerStyle(ImPlotMarker_Circle, 4, ImVec4(0.0f, 0.7f, 0.0f, 1.0f), IMPLOT_AUTO, ImVec4(0.0f, 0.7f, 0.0f, 1.0f));
-        ImPlot::PlotLine("Actual", xs.data(), actual.data(), actual.size());
+        ImPlot::PlotLine("Actual", timestamps.data(), actual.data(), actual.size());
         
         // Plot predicted values
         ImPlot::SetNextMarkerStyle(ImPlotMarker_Square, 4, ImVec4(0.0f, 0.0f, 0.8f, 1.0f), IMPLOT_AUTO, ImVec4(0.0f, 0.0f, 0.8f, 1.0f));
-        ImPlot::PlotLine("Predicted", xs.data(), predicted.data(), predicted.size());
+        ImPlot::PlotLine("Predicted", timestamps.data(), predicted.data(), predicted.size());
         
         ImPlot::EndPlot();
     }

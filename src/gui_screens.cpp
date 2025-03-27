@@ -1258,15 +1258,17 @@ void GUI::renderPlotting() {
         setScreen(Screen::HYPERPARAMETERS);
     }
     ImGui::SameLine();
-    if (ImGui::Button("Start New Analysis")) {
-        // Reset state
+    if (ImGui::MenuItem("New", "Ctrl+N")) {
+        // Reset all state
         selectedFilePath_.clear();
         outliers_.clear();
         selectedModelIndex_ = 0;
         selectedFeatures_.clear();
         selectedTargetIndices_.clear();
         model_.reset();
-        plotManager_->reset();
+        if (plotManager_) {
+            plotManager_->reset();
+        }
         predictions_ = Eigen::VectorXd();
         setScreen(Screen::FILE_BROWSER);
     }

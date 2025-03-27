@@ -37,6 +37,23 @@ public:
     static std::optional<Date> parse(const std::string& dateStr);
     std::string toString() const;
     
+    // Convert to UNIX timestamp (seconds since epoch)
+    double toTimestamp() const {
+        std::tm timeinfo = {};
+        timeinfo.tm_year = year_ - 1900;  // Years since 1900
+        timeinfo.tm_mon = month_ - 1;     // Months since January (0-11)
+        timeinfo.tm_mday = day_;          // Day of the month (1-31)
+        timeinfo.tm_hour = 0;             // Hours since midnight (0-23)
+        timeinfo.tm_min = 0;              // Minutes after the hour (0-59)
+        timeinfo.tm_sec = 0;              // Seconds after the minute (0-59)
+        
+        #ifdef _WIN32
+            return static_cast<double>(_mkgmtime(&timeinfo));
+        #else
+            return static_cast<double>(timegm(&timeinfo));
+        #endif
+    }
+    
     // Compare dates
     bool operator<(const Date& other) const;
     bool operator==(const Date& other) const;
