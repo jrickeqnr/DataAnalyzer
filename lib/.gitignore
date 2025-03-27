@@ -1,3 +1,8 @@
 echo "*
 !.gitignore
+eigen/
+fast-cpp-csv-parser/
+imgui/
+implot/
+glfw/
 !.gitkeep" > lib/.gitignore
