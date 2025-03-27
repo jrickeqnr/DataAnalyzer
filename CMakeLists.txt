@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(DataAnalyzerCpp VERSION 1.0)
+project(DataAnalyzer VERSION 1.0)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Add compiler flags
 if(MSVC)
-    add_compile_options(/W4)
+    add_compile_options(/W4 /EHsc /bigobj)
 else()
     add_compile_options(-Wall -Wextra -pedantic)
 endif()
@@ -58,6 +58,13 @@ elseif(UNIX AND NOT APPLE)
     # Linux-specific settings
     find_package(X11 REQUIRED)
     target_link_libraries(DataAnalyzer PRIVATE X11 dl pthread)
+elseif(WIN32)
+    # Windows-specific settings
+    target_compile_definitions(DataAnalyzer PRIVATE 
+        _CRT_SECURE_NO_WARNINGS
+        NOMINMAX  # Prevents Windows' min/max macros from conflicting with std::min/max
+        WIN32_LEAN_AND_MEAN  # Excludes rarely-used Windows headers
+    )
 endif()
 
 # Set OpenGL libraries
