@@ -2,3 +2,4 @@ build/
 results/
 build_windows/
 product.csv
+.DS_Store
