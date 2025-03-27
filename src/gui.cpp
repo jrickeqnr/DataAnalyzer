@@ -256,7 +256,7 @@ bool GUI::initialize() {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
     
     // Setup UTF-8 encoding
-    io.Fonts->AddFontFromFileTTF("lib/imgui/misc/fonts/DroidSansFallback.ttf", 16.0f, nullptr, io.Fonts->GetGlyphRangesChineseFull());
+    // io.Fonts->AddFontFromFileTTF("lib/imgui/misc/fonts/DroidSansFallback.ttf", 16.0f, nullptr, io.Fonts->GetGlyphRangesChineseFull());
     
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window_, true);
