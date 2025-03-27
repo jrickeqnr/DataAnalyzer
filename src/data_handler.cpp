@@ -19,6 +19,8 @@ Date::Date(int year, int month, int day)
     : year_(year), month_(month), day_(day) {
 }
 
+constexpr double PI = 3.14159265358979323846;
+
 std::optional<Date> Date::parse(const std::string& dateStr) {
     // Try different date formats
     std::vector<std::regex> dateFormats = {
@@ -462,7 +464,7 @@ bool DataHandler::addSeasonalFeatures([[maybe_unused]] size_t dateColumnIndex) {
     
     // Create sin/cos features
     for (int i = 0; i < numRows; ++i) {
-        double angle = 2 * M_PI * timeComponents[i] / period;
+        double angle = 2 * PI * timeComponents[i] / period;
         newData(i, numCols) = std::sin(angle);     // Sin feature
         newData(i, numCols + 1) = std::cos(angle); // Cos feature
     }
