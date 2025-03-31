@@ -39,6 +39,9 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     double prev_loss = std::numeric_limits<double>::max();
     
     for (int iter = 0; iter < max_iter_; ++iter) {
+        // Update training progress
+        stats_["Training Progress"] = static_cast<double>(iter) / max_iter_;
+        
         // Update each coefficient using coordinate descent
         for (int j = 0; j < X.cols(); ++j) {
             // Calculate the soft threshold value

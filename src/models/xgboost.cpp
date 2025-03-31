@@ -39,6 +39,9 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     
     // Build boosting rounds
     for (int i = 0; i < n_estimators_; ++i) {
+        // Update training progress
+        stats_["Training Progress"] = static_cast<double>(i) / n_estimators_;
+        
         // Subsample the data if subsample < 1.0
         Eigen::MatrixXd X_sub;
         Eigen::VectorXd residuals_sub;

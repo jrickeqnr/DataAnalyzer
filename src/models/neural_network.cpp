@@ -83,6 +83,9 @@ bool NeuralNetwork::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     
     // For each epoch
     for (int iter = 0; iter < max_iter_; ++iter) {
+        // Update training progress
+        stats_["Training Progress"] = static_cast<double>(iter) / max_iter_;
+        
         // Shuffle the data
         std::vector<int> indices(n_samples);
         std::iota(indices.begin(), indices.end(), 0);

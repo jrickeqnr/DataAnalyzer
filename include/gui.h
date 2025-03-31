@@ -9,6 +9,8 @@
 #include "data_handler.h"
 #include "model.h"
 #include "plotting.h"
+#include <thread>
+#include <mutex>
 
 struct GLFWwindow;
 
@@ -139,6 +141,13 @@ private:
     bool autoHyperparameters_ = false;
     Eigen::VectorXd predictions_;
     std::string exportDir_;
+    
+    // Training progress state
+    double trainingProgress_ = 0.0;
+    bool isTraining_ = false;
+    std::thread trainingThread_;
+    std::mutex trainingMutex_;
+    bool shouldStopTraining_ = false;
     
     // Render methods for each screen
     void renderFileBrowser();

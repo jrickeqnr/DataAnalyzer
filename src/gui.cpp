@@ -209,16 +209,21 @@ GUI::GUI(const std::string& title, int width, int height)
 }
 
 GUI::~GUI() {
-    // Cleanup
-    ImPlot::DestroyContext();
+    // Stop any ongoing training
+    shouldStopTraining_ = true;
+    if (trainingThread_.joinable()) {
+        trainingThread_.join();
+    }
+    
+    // Cleanup ImGui
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     
+    // Cleanup GLFW
     if (window_) {
         glfwDestroyWindow(window_);
     }
-    
     glfwTerminate();
 }
 
