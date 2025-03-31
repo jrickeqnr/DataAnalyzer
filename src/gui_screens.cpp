@@ -578,19 +578,12 @@ void GUI::renderHyperparameters() {
     ImGui::Spacing();
     
     // Hyperparameter configuration
-    static bool autoTune = false;
-    static bool isTraining = false;  // Add state variable for training
-    ImGui::Checkbox("Automatic Hyperparameter Tuning", &autoTune);
+    ImGui::Checkbox("Auto-tune Hyperparameters", &autoHyperparameters_);
     
-    autoHyperparameters_ = autoTune;
-
-    // Show status during training
-    if (isTraining) {
-        ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Tuning hyperparameters... This may take a moment.");
-    }
+    // Status is now handled in the status box below
 
     // Show best parameters if available during auto-tuning
-    if (autoTune && model_) {
+    if (autoHyperparameters_ && model_) {
         auto stats = model_->getStats();
         if (stats.find("Best RMSE") != stats.end()) {
             ImGui::Separator();
@@ -631,7 +624,7 @@ void GUI::renderHyperparameters() {
     }
     
     // Different hyperparameters based on model type
-    if (!autoTune) {
+    if (!autoHyperparameters_) {
         switch (selectedModelIndex_) {
             case 0: // Linear Regression
                 // Linear Regression doesn't have hyperparameters
@@ -720,33 +713,197 @@ void GUI::renderHyperparameters() {
         }
     }
     
+    // Add the new status display
+    ImGui::BeginGroup();
+    
+    // Create a light blue background for the status message
+    ImVec2 statusSize = ImVec2(ImGui::GetContentRegionAvail().x, 0);
+    if (isTraining_) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.1f, 0.2f, 0.3f, 0.3f));  // Light blue background
+        statusSize.y = autoHyperparameters_ ? 60.0f : 40.0f;  // Taller for auto-tuning
+    } else if (trainingProgress_ >= 1.0) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.1f, 0.3f, 0.1f, 0.3f));  // Light green background
+        statusSize.y = 40.0f;
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.2f, 0.2f, 0.2f, 0.3f));  // Gray background
+        statusSize.y = 40.0f;
+    }
+    
+    ImGui::BeginChild("StatusBox", statusSize, true);
+    
+    if (isTraining_) {
+        if (autoHyperparameters_) {
+            auto stats = model_->getStats();
+            
+            // Main status message
+            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);  // Use default font but we could use a larger one if available
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "Model Training in Progress");
+            ImGui::PopFont();
+            
+            ImGui::Spacing();
+            
+            // Detailed status based on current phase
+            if (stats.find("Grid Search Progress") != stats.end() && trainingProgress_ <= 0.5) {
+                // Phase 1 details
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f), 
+                    "Finding optimal hyperparameters by evaluating multiple configurations...");
+                
+                // If we have best parameters so far, show them
+                if (stats.find("Best RMSE") != stats.end()) {
+                    ImGui::Text("Current best RMSE: %.4f", stats["Best RMSE"]);
+                }
+            } else {
+                // Phase 2 details
+                ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), 
+                    "Training final model with optimal parameters...");
+            }
+        } else {
+            // Simple training message for non-auto-tuning
+            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
+            ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "Training Model...");
+            ImGui::PopFont();
+            
+            ImGui::Spacing();
+            ImGui::Text("This may take a moment depending on dataset size and model complexity.");
+        }
+    } else if (trainingProgress_ >= 1.0) {
+        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Training Completed Successfully!");
+        ImGui::PopFont();
+        
+        ImGui::Spacing();
+        ImGui::Text("You can now view the model results below or proceed to the plotting screen.");
+    } else {
+        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
+        ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Ready to Train Model");
+        ImGui::PopFont();
+        
+        ImGui::Spacing();
+        ImGui::Text("Configure settings above and click 'Train Model' to begin.");
+    }
+    
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::EndGroup();
+    
+    ImGui::Spacing();
+    
     // Show training progress section (always visible)
     ImGui::Spacing();
     ImGui::Separator();
     
-    // Status message
-    if (isTraining_) {
-        if (autoHyperparameters_) {
-            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Training model with automatic hyperparameter tuning...");
+    // Progress bar with phase indication
+    if (isTraining_ && autoHyperparameters_) {
+        // Auto-tuning progress visualization
+        ImGui::BeginGroup();
+        
+        // Progress label
+        ImGui::Spacing();
+        ImGui::Text("Training Progress:");
+        
+        // Create a cleaner two-phase progress indicator
+        const float barHeight = 24.0f;
+        const float fullWidth = ImGui::GetContentRegionAvail().x;
+        const float halfWidth = fullWidth / 2.0f;
+        ImVec2 cursorPos = ImGui::GetCursorPos();
+        
+        // Phase labels - Before drawing bars
+        ImGui::SetCursorPos(ImVec2(cursorPos.x + halfWidth * 0.25f, cursorPos.y));
+        ImGui::Text("Phase 1: Finding Best Parameters");
+        ImGui::SetCursorPos(ImVec2(cursorPos.x + halfWidth + halfWidth * 0.25f, cursorPos.y));
+        ImGui::Text("Phase 2: Training Final Model");
+        
+        // Reset cursor position for drawing bars
+        ImGui::SetCursorPos(ImVec2(cursorPos.x, cursorPos.y + ImGui::GetTextLineHeightWithSpacing()));
+        
+        // Phase 1 bar (left half)
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.1f, 0.1f, 0.2f, 1.0f));  // Darker blue background
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 0.6f, 1.0f, 1.0f));  // Brighter blue for progress
+        
+        // If we're in phase 1, show percentage in the bar, otherwise show "Completed"
+        char phase1Text[32];
+        if (trainingProgress_ <= 0.5f) {
+            snprintf(phase1Text, sizeof(phase1Text), "%.0f%%", (trainingProgress_ / 0.5f) * 100.0f);
         } else {
-            ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Training model...");
+            strcpy(phase1Text, "Completed");
         }
-    } else if (trainingProgress_ >= 1.0) {
-        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Training completed!");
+        
+        ImGui::PushID("Phase1Bar");
+        ImGui::ProgressBar(std::min<float>(trainingProgress_ / 0.5f, 1.0f), ImVec2(halfWidth - 5.0f, barHeight), phase1Text);
+        ImGui::PopID();
+        ImGui::PopStyleColor(2);
+        
+        ImGui::SameLine(0, 10);  // Add spacing between bars
+        
+        // Phase 2 bar (right half)
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.1f, 0.2f, 0.1f, 1.0f));  // Darker green background
+        
+        // Change color based on whether phase 2 has started
+        if (trainingProgress_ > 0.5f) {
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 0.8f, 0.0f, 1.0f));  // Bright green for active
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.4f, 0.2f, 0.5f));  // Faded green for inactive
+        }
+        
+        // Show % only if phase 2 is active
+        char phase2Text[32] = "";
+        if (trainingProgress_ > 0.5f) {
+            snprintf(phase2Text, sizeof(phase2Text), "%.0f%%", ((trainingProgress_ - 0.5f) / 0.5f) * 100.0f);
+        } else {
+            strcpy(phase2Text, "Waiting...");
+        }
+        
+        ImGui::PushID("Phase2Bar");
+        ImGui::ProgressBar(
+            trainingProgress_ > 0.5f ? (trainingProgress_ - 0.5f) / 0.5f : 0.0f, 
+            ImVec2(halfWidth - 5.0f, barHeight), 
+            phase2Text
+        );
+        ImGui::PopID();
+        ImGui::PopStyleColor(2);
+        
+        // Overall percentage
+        ImGui::Spacing();
+        ImGui::Text("Overall Progress: %.0f%%", trainingProgress_ * 100.0f);
+        
+        ImGui::EndGroup();
     } else {
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Ready to train model");
+        // Standard progress bar for regular training (single phase)
+        ImGui::Text("Training Progress:");
+        ImGui::Spacing();
+        
+        // Use a nicer progress bar for regular training
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 0.7f, 0.0f, 1.0f));
+        
+        // Show percentage inside the bar
+        char progressText[32];
+        snprintf(progressText, sizeof(progressText), "%.0f%%", trainingProgress_ * 100.0f);
+        
+        ImGui::ProgressBar(trainingProgress_, ImVec2(-1, 24.0f), progressText);
+        ImGui::PopStyleColor(2);
     }
-    
-    // Progress bar
-    ImGui::ProgressBar(trainingProgress_, ImVec2(-1, 0), "Training Progress");
-    ImGui::SameLine();
-    ImGui::Text("%.0f%%", trainingProgress_ * 100.0);
     
     // Update progress during training
     if (isTraining_ && model_) {
         auto stats = model_->getStats();
-        if (stats.find("Training Progress") != stats.end()) {
-            trainingProgress_ = stats["Training Progress"];
+        
+        // When using auto-hyperparameter tuning, we have two phases:
+        // 1. Grid search progress (finding best parameters)
+        // 2. Final model training progress (training with best parameters)
+        if (autoHyperparameters_) {
+            if (stats.find("Grid Search Progress") != stats.end()) {
+                // Grid search phase - use half of progress bar for grid search
+                trainingProgress_ = stats["Grid Search Progress"] * 0.5;
+            } else if (stats.find("Training Progress") != stats.end()) {
+                // Final training phase - start from 50% and go to 100%
+                trainingProgress_ = 0.5 + (stats["Training Progress"] * 0.5);
+            }
+        } else {
+            // Regular training (no auto-tuning)
+            if (stats.find("Training Progress") != stats.end()) {
+                trainingProgress_ = stats["Training Progress"];
+            }
         }
         
         // Process Windows messages to prevent "not responding" state
@@ -797,12 +954,22 @@ void GUI::renderHyperparameters() {
                             std::vector<double> alpha_values = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
                             std::vector<double> lambda_values = {0.001, 0.01, 0.1, 1.0, 10.0};
                             
-                            // Create temporary model for grid search
-                            ElasticNet tempModel;
-                            auto [best_alpha, best_lambda] = tempModel.gridSearch(X, y, alpha_values, lambda_values);
+                            // Create persistent model for grid search
+                            model_ = std::make_unique<ElasticNet>();
+                            // Initialize progress to 0
+                            model_->getStats()["Grid Search Progress"] = 0.0;
                             
-                            // Create model with best hyperparameters
-                            model_ = std::make_unique<ElasticNet>(best_alpha, best_lambda);
+                            // Run grid search on the persistent model
+                            auto [best_alpha, best_lambda] = 
+                                static_cast<ElasticNet*>(model_.get())->gridSearch(X, y, alpha_values, lambda_values);
+                            
+                            // Create a new model with the best parameters
+                            // This is important to ensure we're starting with a clean model
+                            auto tempModel = std::make_unique<ElasticNet>(best_alpha, best_lambda);
+                            if (tempModel->train(X, y)) {
+                                // Only replace the model if training succeeded
+                                model_ = std::move(tempModel);
+                            }
                             
                             // Update UI values to reflect the best parameters
                             alpha_ = best_alpha;
@@ -820,13 +987,21 @@ void GUI::renderHyperparameters() {
                             std::vector<int> max_depth_values = {3, 4, 5};  // Reduced and centered range
                             std::vector<double> subsample_values = {0.8, 1.0};  // Most common values
                             
-                            // Create temporary model for grid search
-                            XGBoost tempModel;
-                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_subsample] = 
-                                tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values, subsample_values);
+                            // Create persistent model for grid search
+                            model_ = std::make_unique<XGBoost>();
+                            // Initialize progress to 0
+                            model_->getStats()["Grid Search Progress"] = 0.0;
                             
-                            // Create model with best hyperparameters
-                            model_ = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, best_subsample);
+                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_subsample] = 
+                                static_cast<XGBoost*>(model_.get())->gridSearch(X, y, n_estimators_values, 
+                                                                               learning_rate_values, max_depth_values, subsample_values);
+                            
+                            // Create temporary model with best hyperparameters
+                            auto tempModel = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, best_subsample);
+                            if (tempModel->train(X, y)) {
+                                // Only replace the model if training succeeded
+                                model_ = std::move(tempModel);
+                            }
                             
                             // Update UI values to reflect the best parameters
                             n_estimators_ = best_n_estimators;
@@ -846,13 +1021,21 @@ void GUI::renderHyperparameters() {
                             std::vector<int> max_depth_values = {2, 3, 4};  // Shallow trees to prevent overfitting
                             std::vector<int> min_samples_split_values = {2, 3};  // Allow slightly larger minimum splits
                             
-                            // Create temporary model for grid search
-                            GradientBoosting tempModel;
-                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split] = 
-                                tempModel.gridSearch(X, y, n_estimators_values, learning_rate_values, max_depth_values, min_samples_split_values);
+                            // Create persistent model for grid search
+                            model_ = std::make_unique<GradientBoosting>();
+                            // Initialize progress to 0
+                            model_->getStats()["Grid Search Progress"] = 0.0;
                             
-                            // Create model with best hyperparameters
-                            model_ = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split);
+                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split] = 
+                                static_cast<GradientBoosting*>(model_.get())->gridSearch(X, y, n_estimators_values, 
+                                                                                        learning_rate_values, max_depth_values, min_samples_split_values);
+                            
+                            // Create temporary model with best hyperparameters
+                            auto tempModel = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split);
+                            if (tempModel->train(X, y)) {
+                                // Only replace the model if training succeeded
+                                model_ = std::move(tempModel);
+                            }
                             
                             // Update UI values to reflect the best parameters
                             n_estimators_ = best_n_estimators;
@@ -877,13 +1060,21 @@ void GUI::renderHyperparameters() {
                             std::vector<double> alpha_values = {0.01, 0.001};  // L2 regularization
                             std::vector<int> max_iterations_values = {200, 500, 1000};  // Reasonable iteration limits
                             
-                            // Create temporary model for grid search
-                            NeuralNetwork tempModel;
-                            auto [best_layers, best_learning_rate, best_alpha, best_iterations] = 
-                                tempModel.gridSearch(X, y, layer_configs, learning_rate_values, alpha_values, max_iterations_values);
+                            // Create persistent model for grid search
+                            model_ = std::make_unique<NeuralNetwork>();
+                            // Initialize progress to 0
+                            model_->getStats()["Grid Search Progress"] = 0.0;
                             
-                            // Create model with best hyperparameters
-                            model_ = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations, best_alpha);
+                            auto [best_layers, best_learning_rate, best_alpha, best_iterations] = 
+                                static_cast<NeuralNetwork*>(model_.get())->gridSearch(X, y, layer_configs, 
+                                                                                     learning_rate_values, alpha_values, max_iterations_values);
+                            
+                            // Create temporary model with best hyperparameters
+                            auto tempModel = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations, best_alpha);
+                            if (tempModel->train(X, y)) {
+                                // Only replace the model if training succeeded
+                                model_ = std::move(tempModel);
+                            }
                             
                             // Update UI values to reflect the best parameters
                             hidden_layers_ = best_layers.size();
