@@ -952,7 +952,7 @@ void GUI::renderHyperparameters() {
                         if (autoHyperparameters_) {
                             // Define grid search values for ElasticNet
                             std::vector<double> alpha_values = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
-                            std::vector<double> lambda_values = {0.001, 0.01, 0.1, 1.0, 10.0};
+                            std::vector<double> lambda_values = {0.0001, 0.001, 0.01, 1.0, 10.0, 50.0, 100.0};
                             
                             // Create persistent model for grid search
                             model_ = std::make_unique<ElasticNet>();

@@ -1,8 +1,10 @@
 #include "../../include/model.h"
+#include "../../include/logger.h"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
 #include <random>
+#include <sstream>
 
 namespace DataAnalyzer {
 
@@ -10,12 +12,19 @@ namespace DataAnalyzer {
 ElasticNet::ElasticNet(double alpha, double lambda, int max_iter, double tol)
     : alpha_(alpha), lambda_(lambda), max_iter_(max_iter), tol_(tol),
       intercept_(0.0), rmse_(0.0), r_squared_(0.0) {
+    std::stringstream ss;
+    ss << "Initialized ElasticNet with alpha=" << alpha << ", lambda=" << lambda 
+       << ", max_iter=" << max_iter << ", tol=" << tol;
+    LOG_INFO(ss.str());
 }
 
 bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     if (X.rows() != y.rows() || X.rows() == 0) {
+        LOG_ERROR("Invalid input dimensions for training");
         return false;
     }
+    
+    LOG_INFO("Starting ElasticNet training...");
     
     // Prepare data (standardize features)
     Eigen::VectorXd X_mean = X.colwise().mean();
@@ -25,6 +34,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     for (int i = 0; i < X_std.size(); ++i) {
         if (X_std(i) < 1e-10) {
             X_std(i) = 1.0;
+            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
         }
     }
     
@@ -64,10 +74,19 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
         
         // Check convergence
         if (std::abs(prev_loss - loss) < tol_) {
+            std::stringstream ss;
+            ss << "Converged after " << iter + 1 << " iterations with loss=" << loss;
+            LOG_INFO(ss.str());
             break;
         }
         
         prev_loss = loss;
+        
+        if (iter % 100 == 0) {
+            std::stringstream ss;
+            ss << "Iteration " << iter << ", loss=" << loss;
+            LOG_DEBUG(ss.str());
+        }
     }
     
     // Rescale coefficients back to original scale
@@ -80,6 +99,10 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     
     // Compute statistics
     computeStats(X, y);
+    
+    std::stringstream ss;
+    ss << "Training completed. RMSE=" << rmse_ << ", R2=" << r_squared_;
+    LOG_INFO(ss.str());
     
     return true;
 }
@@ -120,8 +143,11 @@ std::pair<double, double> ElasticNet::gridSearch(
     int k) {
     
     if (X.rows() != y.rows() || alpha_values.empty() || lambda_values.empty() || k <= 1) {
+        LOG_ERROR("Invalid parameters for grid search");
         return {alpha_, lambda_};
     }
+    
+    LOG_INFO("Starting grid search for hyperparameters...");
     
     // Standardize features
     Eigen::MatrixXd X_std = X;
@@ -174,6 +200,11 @@ std::pair<double, double> ElasticNet::gridSearch(
             
             // Update progress in stats
             stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
+            
+            std::stringstream ss;
+            ss << "Testing alpha=" << alpha << ", lambda=" << lambda 
+               << " (" << current_combination << "/" << total_combinations << ")";
+            LOG_DEBUG(ss.str());
             
             // K-fold cross-validation
             for (int fold = 0; fold < k && !early_stop; ++fold) {
@@ -259,6 +290,11 @@ std::pair<double, double> ElasticNet::gridSearch(
                     best_alpha = alpha;
                     best_lambda = lambda;
                     
+                    std::stringstream ss;
+                    ss << "New best parameters found - alpha=" << alpha 
+                       << ", lambda=" << lambda << ", RMSE=" << avg_rmse;
+                    LOG_INFO(ss.str());
+                    
                     // Store best parameters in stats
                     stats_["Best RMSE"] = best_rmse;
                     stats_["Best Alpha"] = best_alpha;
@@ -267,6 +303,11 @@ std::pair<double, double> ElasticNet::gridSearch(
             }
         }
     }
+    
+    std::stringstream ss;
+    ss << "Grid search completed. Best parameters - alpha=" << best_alpha 
+       << ", lambda=" << best_lambda << ", RMSE=" << best_rmse;
+    LOG_INFO(ss.str());
     
     return {best_alpha, best_lambda};
 }
@@ -350,6 +391,22 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
     for (int i = 0; i < p; ++i) {
         stats_["SE_" + std::to_string(i)] = std_errors(i + 1);
         stats_["t_value_" + std::to_string(i)] = t_values(i + 1);
+    }
+    
+    // Log important statistics
+    std::stringstream ss;
+    ss << "Model statistics - RMSE=" << rmse_ << ", R2=" << r_squared_ 
+       << ", Adjusted R2=" << adj_r_squared << ", AIC=" << aic << ", BIC=" << bic;
+    LOG_INFO(ss.str());
+    
+    // Log coefficient statistics
+    for (int i = 0; i < p; ++i) {
+        if (std::abs(coefficients_(i)) > 1e-6) {  // Only log non-zero coefficients
+            std::stringstream coef_ss;
+            coef_ss << "Coefficient " << i << " = " << coefficients_(i) 
+                   << " (t-value=" << t_values(i + 1) << ")";
+            LOG_DEBUG(coef_ss.str());
+        }
     }
 }
 

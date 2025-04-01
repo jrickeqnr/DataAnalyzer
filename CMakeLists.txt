@@ -19,6 +19,7 @@ set(SOURCES
     src/gui.cpp
     src/gui_screens.cpp  # Separate file for screen implementations
     src/plotting.cpp
+    src/logger.cpp
     # Model implementations
     src/models/linear_regression.cpp
     src/models/elasticnet.cpp
@@ -33,6 +34,7 @@ set(HEADERS
     include/data_handler.h
     include/gui.h
     include/plotting.h
+    include/logger.h
 )
 
 # Build the executable

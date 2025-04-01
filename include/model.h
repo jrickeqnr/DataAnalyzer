@@ -100,7 +100,7 @@ public:
      * @param tol Tolerance for stopping criteria
      */
     ElasticNet(double alpha = 0.5, double lambda = 1.0, 
-               int max_iter = 1000, double tol = 1e-4);
+               int max_iter = 10000, double tol = 1e-3);
     
     ~ElasticNet() override = default;
 
