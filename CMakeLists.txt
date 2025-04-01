@@ -6,8 +6,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Set build type to Release if not specified
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Setting build type to 'Release' as none was specified.")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+    # Set the possible values of build type for cmake-gui
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
 # Add source files
@@ -120,8 +123,36 @@ target_link_libraries(DataAnalyzer PRIVATE
     glfw
 )
 
-# Copy resources directory to build directory
+# Copy resources directory to build directory - once at configure time
 file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/assets DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
+# For multi-config generators (Visual Studio, etc.)
+if(CMAKE_CONFIGURATION_TYPES)
+    # Copy assets to each output configuration directory
+    foreach(CONFIG_TYPE ${CMAKE_CONFIGURATION_TYPES})
+        add_custom_command(TARGET DataAnalyzer POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:DataAnalyzer>/assets
+            COMMENT "Copying assets to ${CONFIG_TYPE} output directory"
+        )
+    endforeach()
+else()
+    # For single-config generators like Makefiles
+    add_custom_command(TARGET DataAnalyzer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_FILE_DIR:DataAnalyzer>/assets
+        COMMENT "Copying assets to output directory"
+    )
+endif()
+
+# Output directory - explicit setup for Debug/Release
+set_target_properties(DataAnalyzer PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin/Debug
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO ${CMAKE_BINARY_DIR}/bin/RelWithDebInfo
+    RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL ${CMAKE_BINARY_DIR}/bin/MinSizeRel
+)
 
 # Install resources with your application
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/assets
@@ -135,11 +166,6 @@ install(DIRECTORY DESTINATION ${CMAKE_INSTALL_PREFIX}/share/DataAnalyzer/data)
 # Copy README
 install(FILES README.md DESTINATION ${CMAKE_INSTALL_PREFIX}/share/DataAnalyzer)
 
-# Output directory
-set_target_properties(DataAnalyzer PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
 # Enable testing
 enable_testing()
 
@@ -148,4 +174,9 @@ message(STATUS "CMAKE_SYSTEM_NAME: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "CMAKE_CXX_COMPILER_ID: ${CMAKE_CXX_COMPILER_ID}")
 message(STATUS "CMAKE_CXX_COMPILER_VERSION: ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "CMAKE_CXX_STANDARD: ${CMAKE_CXX_STANDARD}")
-message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}") 
+message(STATUS "CMAKE_BUILD_TYPE: ${CMAKE_BUILD_TYPE}")
+if(CMAKE_CONFIGURATION_TYPES)
+    message(STATUS "Multi-configuration generator detected, configurations: ${CMAKE_CONFIGURATION_TYPES}")
+else()
+    message(STATUS "Single-configuration generator detected")
+endif() 

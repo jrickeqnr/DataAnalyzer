@@ -3,8 +3,8 @@
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char** argv) {
     try {
-        // Create the application
-        DataAnalyzer::GUI app("DataAnalyzer");
+        // Create the application with a more descriptive title
+        DataAnalyzer::GUI app("Equinor DataAnalyzer", 1280, 720);
         
         // Initialize the application
         if (!app.initialize()) {

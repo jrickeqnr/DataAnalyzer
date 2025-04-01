@@ -18,6 +18,25 @@
 #include <GL/gl.h>
 #endif
 
+// Windows-specific includes for dark mode title bar
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#include <Windows.h>
+#include <dwmapi.h>
+#include <uxtheme.h>  // For SetWindowTheme
+#pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "uxtheme.lib")  // Link uxtheme.lib
+// Define DWMWA_CAPTION_COLOR if not defined
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#endif
+
+// For icon loading with stb_image
+#define STB_IMAGE_IMPLEMENTATION
+#include "../lib/stb/stb_image.h"
+
 namespace fs = std::filesystem;
 
 namespace DataAnalyzer {
@@ -242,6 +261,15 @@ bool GUI::initialize() {
 #ifdef __APPLE__
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
+
+#ifdef _WIN32
+    // Tell Windows we want dark mode before creating the window
+    // This helps ensure consistent appearance from the start
+    SetEnvironmentVariableA("ENABLE_DARK_MODE", "1");
+    
+    // Add these hints to indicate we want a dark-themed window
+    glfwWindowHint(GLFW_DECORATED, GLFW_TRUE);
+#endif
     
     // Create window with graphics context
     window_ = glfwCreateWindow(width_, height_, title_.c_str(), nullptr, nullptr);
@@ -270,16 +298,169 @@ bool GUI::initialize() {
     // Setup ImGui style
     setupImGuiStyle();
     
+#ifdef _WIN32
+    // Apply dark mode to the window (after ImGui setup)
+    HWND hwnd = glfwGetWin32Window(window_);
+    if (hwnd) {
+        // Apply dark mode with multiple approaches for better compatibility
+        
+        // Approach 1: Use the modern dark mode API (Win10 19041+)
+        BOOL dark_mode = TRUE;
+        DWORD attr_new = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE (newer builds)
+        HRESULT hr = DwmSetWindowAttribute(hwnd, attr_new, &dark_mode, sizeof(dark_mode));
+        
+        // Approach 2: Use the older dark mode API (Pre-19041)
+        if (FAILED(hr)) {
+            DWORD attr_old = 19; // DWMWA_USE_IMMERSIVE_DARK_MODE (older builds)
+            hr = DwmSetWindowAttribute(hwnd, attr_old, &dark_mode, sizeof(dark_mode));
+        }
+        
+        // Approach 3: Try to set the caption color directly
+        if (FAILED(hr)) {
+            COLORREF darkColor = RGB(32, 32, 32);
+            DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &darkColor, sizeof(darkColor));
+        }
+        
+        // Approach 4: Set window theme for additional elements like the top bar controls
+        SetWindowTheme(hwnd, L"DarkMode_Explorer", NULL);
+        
+        // Ensure window is fully updated
+        InvalidateRect(hwnd, NULL, TRUE);
+        UpdateWindow(hwnd);
+        
+        // Approach 5: Hack to force Windows to refresh the title bar
+        // This simulates a window activation/deactivation cycle to refresh the appearance
+        RECT windowRect;
+        GetWindowRect(hwnd, &windowRect);
+        
+        // Force a redraw by moving the window slightly and then back
+        SetWindowPos(hwnd, NULL, 
+                     windowRect.left + 1, windowRect.top,
+                     0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        Sleep(10); // Brief delay to let Windows process the change
+        
+        SetWindowPos(hwnd, NULL, 
+                     windowRect.left, windowRect.top,
+                     0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        
+        // Approach 6: Simulate focus events
+        SendMessage(hwnd, WM_ACTIVATE, WA_INACTIVE, 0);
+        SendMessage(hwnd, WM_ACTIVATE, WA_ACTIVE, 0);
+        
+        // Ensure window gets focus
+        SetForegroundWindow(hwnd);
+        SetActiveWindow(hwnd);
+        
+        // Force a brief delay to allow Windows to apply the theme
+        Sleep(50);
+        
+        // Do an initial render cycle to propagate the dark theme
+        ImGui_ImplOpenGL3_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        ImGui::Render();
+        int display_w, display_h;
+        glfwGetFramebufferSize(window_, &display_w, &display_h);
+        glViewport(0, 0, display_w, display_h);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        glfwSwapBuffers(window_);
+    }
+#endif
+
+    // Set window icon using both the resource and manual method for redundancy
+    // The resource method (from app_icon.rc) should work for taskbar icons
+    // The manual method ensures the window icon shows correctly
+    try {
+        GLFWimage icons[1];
+        std::vector<std::string> possibleIconPaths = {
+            "assets/EQNR.png",                                  // Relative to current working directory
+            "../assets/EQNR.png",                               // One level up
+            fs::current_path().string() + "/assets/EQNR.png",   // Absolute path to current directory
+            fs::current_path().string() + "/../assets/EQNR.png" // One level up from current directory
+        };
+        
+        // Log current working directory to help debugging
+        std::cout << "Current working directory: " << fs::current_path().string() << std::endl;
+        
+        bool iconLoaded = false;
+        
+        // Try each possible path
+        for (const auto& iconPath : possibleIconPaths) {
+            std::cout << "Trying icon path: " << iconPath << std::endl;
+            
+            if (fs::exists(iconPath)) {
+                std::cout << "Found icon at: " << iconPath << std::endl;
+                
+                int channels;
+                icons[0].pixels = stbi_load(iconPath.c_str(), &icons[0].width, &icons[0].height, &channels, 4);
+                
+                if (icons[0].pixels) {
+                    // Use GLFW to set the window icon - this works for the window decoration
+                    glfwSetWindowIcon(window_, 1, icons);
+                    
+                    // Free the image data
+                    stbi_image_free(icons[0].pixels);
+                    
+                    iconLoaded = true;
+                    std::cout << "Successfully loaded icon from: " << iconPath << std::endl;
+                    break;
+                } else {
+                    std::cerr << "Failed to load icon image from " << iconPath << ": " << stbi_failure_reason() << std::endl;
+                }
+            } else {
+                std::cerr << "Icon file not found at: " << iconPath << std::endl;
+            }
+        }
+        
+        if (!iconLoaded) {
+            std::cerr << "Failed to load icon from any location. Icon will not be displayed." << std::endl;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading window icon: " << e.what() << std::endl;
+        // Not critical, continue without icon
+    }
+    
     return true;
 }
 
 void GUI::run() {
     ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
     
+#ifdef _WIN32
+    // Schedule a delayed dark mode reapplication
+    // This helps ensure the title bar is properly styled after the window is fully shown
+    static bool needsDarkModeReapply = true;
+    static int frameCount = 0;
+#endif
+    
     // Main loop
     while (!glfwWindowShouldClose(window_)) {
         // Poll and handle events
         glfwPollEvents();
+        
+#ifdef _WIN32
+        // Reapply dark mode after a few frames
+        if (needsDarkModeReapply && frameCount++ > 5) {
+            needsDarkModeReapply = false;
+            
+            HWND hwnd = glfwGetWin32Window(window_);
+            if (hwnd) {
+                // Apply dark mode settings
+                BOOL dark_mode = TRUE;
+                DWORD attr_new = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE
+                DwmSetWindowAttribute(hwnd, attr_new, &dark_mode, sizeof(dark_mode));
+                
+                // Force a window update
+                SendMessage(hwnd, WM_NCACTIVATE, FALSE, 0);
+                SendMessage(hwnd, WM_NCACTIVATE, TRUE, 0);
+                
+                // Ensure title bar is redrawn
+                SetWindowPos(hwnd, NULL, 0, 0, 0, 0, 
+                             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            }
+        }
+#endif
         
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -373,7 +554,7 @@ void GUI::setupImGuiStyle() {
     colors[ImGuiCol_TitleBg]                = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
     colors[ImGuiCol_TitleBgActive]          = ImVec4(0.16f, 0.29f, 0.48f, 1.00f);
     colors[ImGuiCol_TitleBgCollapsed]       = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
-    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+    colors[ImGuiCol_MenuBarBg]              = ImVec4(0.06f, 0.06f, 0.06f, 1.00f); // Darker menu bar to match Windows dark mode
     colors[ImGuiCol_ScrollbarBg]            = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
     colors[ImGuiCol_ScrollbarGrab]          = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
     colors[ImGuiCol_ScrollbarGrabHovered]   = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
@@ -417,6 +598,12 @@ void GUI::setupImGuiStyle() {
     style.FramePadding = ImVec2(8, 4);
     style.ItemSpacing = ImVec2(10, 8);
     style.WindowPadding = ImVec2(10, 10);
+    
+#ifdef _WIN32
+    // On Windows, ensure the menu bar has the correct color
+    // This is important to prevent flickering when the app starts
+    style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+#endif
 }
 
 void GUI::renderMainMenu() {
