@@ -90,19 +90,37 @@ void GUI::renderOutlierDetection() {
     ImGui::Text("Outlier Detection");
     ImGui::Separator();
     
-    ImGui::TextWrapped("Detect outliers in the data using the IQR method. Outliers are defined as values outside Q1 - 1.5*IQR and Q3 + 1.5*IQR.");
+    ImGui::TextWrapped("Detect outliers in the data using the IQR method. Outliers are defined as values outside Q1 - k*IQR and Q3 + k*IQR, where k is the sensitivity value.");
     ImGui::Spacing();
+    
+    // Add sensitivity slider
+    static bool sensitivityChanged = false;
+    ImGui::TextWrapped("Adjust sensitivity (lower values detect more outliers, higher values detect fewer):");
+    if (ImGui::SliderFloat("Sensitivity", &outlierSensitivity_, 0.5f, 3.0f, "%.1f")) {
+        sensitivityChanged = true;
+    }
     
     static bool detectPressed = false;
     static bool showOutlierPopup = false;
     static std::string popupMessage;
     static int totalOutliers = 0;
     
+    // Reset detection if sensitivity changed
+    if (sensitivityChanged && detectPressed) {
+        detectPressed = false;
+        sensitivityChanged = false;
+        selectedOutliers_.clear();
+    }
+    
     if (!detectPressed) {
         if (ImGui::Button("Detect Outliers", ImVec2(150, 0))) {
-            // Detect outliers in all numeric columns
-            outliers_ = dataHandler_.detectOutliers();
+            // Detect outliers in all numeric columns with specified sensitivity
+            outliers_ = dataHandler_.detectOutliers({}, static_cast<double>(outlierSensitivity_));
             detectPressed = true;
+            sensitivityChanged = false;
+            
+            // Initialize selectedOutliers_ with all outliers (all checked by default)
+            selectedOutliers_ = outliers_;
             
             // Calculate total outliers and prepare popup
             totalOutliers = 0;
@@ -140,6 +158,16 @@ void GUI::renderOutlierDetection() {
         ImGui::Text("Outliers detected in the following columns:");
         ImGui::Spacing();
         
+        // Add select all/none buttons
+        if (ImGui::Button("Select All")) {
+            selectedOutliers_ = outliers_;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Select None")) {
+            selectedOutliers_.clear();
+        }
+        ImGui::Spacing();
+        
         const std::vector<std::string>& columnNames = dataHandler_.getColumnNames();
         const std::vector<Date>& dates = dataHandler_.getDates();
         static bool outlierFixed = false;
@@ -159,7 +187,8 @@ void GUI::renderOutlierDetection() {
                     ImGui::Text("Outliers:");
                     
                     // Create a table for outlier details
-                    if (ImGui::BeginTable(("OutliersTable##" + std::to_string(col)).c_str(), outlierFixed ? 3 : 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                    if (ImGui::BeginTable(("OutliersTable##" + std::to_string(col)).c_str(), outlierFixed ? 4 : 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                        ImGui::TableSetupColumn("Selected", ImGuiTableColumnFlags_WidthFixed, 70.0f);
                         ImGui::TableSetupColumn("Date");
                         ImGui::TableSetupColumn(outlierFixed ? "Original Value" : "Value");
                         if (outlierFixed) {
@@ -170,8 +199,58 @@ void GUI::renderOutlierDetection() {
                         for (size_t row : rows) {
                             ImGui::TableNextRow();
                             
-                            // Date column
+                            // Checkbox column - only enabled if not fixed yet
                             ImGui::TableSetColumnIndex(0);
+                            if (!outlierFixed) {
+                                // Create a unique ID for the checkbox
+                                std::string checkboxId = "##select_" + std::to_string(col) + "_" + std::to_string(row);
+                                
+                                // Check if this outlier is selected
+                                bool isSelected = false;
+                                auto it = selectedOutliers_.find(col);
+                                if (it != selectedOutliers_.end()) {
+                                    isSelected = std::find(it->second.begin(), it->second.end(), row) != it->second.end();
+                                }
+                                
+                                // Render checkbox
+                                if (ImGui::Checkbox(checkboxId.c_str(), &isSelected)) {
+                                    // Update selectedOutliers_ based on checkbox state
+                                    if (isSelected) {
+                                        // Add to selected outliers if not already there
+                                        if (selectedOutliers_.find(col) == selectedOutliers_.end()) {
+                                            selectedOutliers_[col] = std::vector<size_t>{row};
+                                        } else if (std::find(selectedOutliers_[col].begin(), selectedOutliers_[col].end(), row) == selectedOutliers_[col].end()) {
+                                            selectedOutliers_[col].push_back(row);
+                                        }
+                                    } else {
+                                        // Remove from selected outliers
+                                        auto it = selectedOutliers_.find(col);
+                                        if (it != selectedOutliers_.end()) {
+                                            auto& rowVec = it->second;
+                                            rowVec.erase(std::remove(rowVec.begin(), rowVec.end(), row), rowVec.end());
+                                            
+                                            // Remove the column entry if no rows left
+                                            if (rowVec.empty()) {
+                                                selectedOutliers_.erase(col);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Show whether this outlier was fixed
+                                auto it = selectedOutliers_.find(col);
+                                bool wasFixed = it != selectedOutliers_.end() && 
+                                    std::find(it->second.begin(), it->second.end(), row) != it->second.end();
+                                
+                                if (wasFixed) {
+                                    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Fixed");
+                                } else {
+                                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Skipped");
+                                }
+                            }
+                            
+                            // Date column
+                            ImGui::TableSetColumnIndex(1);
                             if (row < dates.size()) {
                                 ImGui::Text("%s", dates[row].toString().c_str());
                             } else {
@@ -179,7 +258,7 @@ void GUI::renderOutlierDetection() {
                             }
                             
                             // Value column
-                            ImGui::TableSetColumnIndex(1);
+                            ImGui::TableSetColumnIndex(2);
                             if (row < static_cast<size_t>(originalData.rows()) && col < static_cast<size_t>(originalData.cols())) {
                                 ImGui::Text("%.2f", originalData(row, col));
                             } else {
@@ -188,11 +267,22 @@ void GUI::renderOutlierDetection() {
                             
                             // Fixed value column (only shown after fixing)
                             if (outlierFixed) {
-                                ImGui::TableSetColumnIndex(2);
-                                if (row < static_cast<size_t>(dataHandler_.getData().rows()) && col < static_cast<size_t>(dataHandler_.getData().cols())) {
+                                ImGui::TableSetColumnIndex(3);
+                                
+                                // Check if this outlier was selected for fixing
+                                auto it = selectedOutliers_.find(col);
+                                bool wasFixed = it != selectedOutliers_.end() && 
+                                    std::find(it->second.begin(), it->second.end(), row) != it->second.end();
+                                
+                                if (wasFixed && row < static_cast<size_t>(dataHandler_.getData().rows()) && 
+                                    col < static_cast<size_t>(dataHandler_.getData().cols())) {
                                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
                                     ImGui::Text("%.2f", dataHandler_.getData()(row, col));
                                     ImGui::PopStyleColor();
+                                } else if (row < static_cast<size_t>(dataHandler_.getData().rows()) && 
+                                          col < static_cast<size_t>(dataHandler_.getData().cols())) {
+                                    // Show original value for non-fixed outliers
+                                    ImGui::Text("%.2f", originalData(row, col));
                                 } else {
                                     ImGui::Text("Invalid Value");
                                 }
@@ -209,13 +299,31 @@ void GUI::renderOutlierDetection() {
         
         ImGui::Spacing();
         if (!outlierFixed) {
-            if (ImGui::Button("Fix Outliers", ImVec2(150, 0))) {
-                if (dataHandler_.fixOutliers(outliers_)) {
-                    showSuccessPopup("Outliers fixed successfully!");
-                    outlierFixed = true;
+            if (ImGui::Button("Fix Selected Outliers", ImVec2(200, 0))) {
+                if (selectedOutliers_.empty()) {
+                    showErrorPopup("No outliers selected for fixing!");
                 } else {
-                    showErrorPopup("Failed to fix outliers!");
+                    if (dataHandler_.fixOutliers(outliers_, selectedOutliers_)) {
+                        showSuccessPopup("Selected outliers fixed successfully!");
+                        outlierFixed = true;
+                    } else {
+                        showErrorPopup("Failed to fix outliers!");
+                    }
                 }
+            }
+            
+            ImGui::SameLine();
+            if (ImGui::Button("Reset Selection", ImVec2(150, 0))) {
+                // Reset to all outliers selected
+                selectedOutliers_ = outliers_;
+            }
+        } else {
+            // Add a button to start over
+            if (ImGui::Button("Detect Outliers Again", ImVec2(200, 0))) {
+                outlierFixed = false;
+                detectPressed = false;
+                outliers_.clear();
+                selectedOutliers_.clear();
             }
         }
     }
@@ -224,6 +332,8 @@ void GUI::renderOutlierDetection() {
     ImGui::Spacing();
     if (ImGui::Button("Back: File Browser", ImVec2(200, 0))) {
         detectPressed = false; // Reset detection state when navigating away
+        outliers_.clear();
+        selectedOutliers_.clear();
         setScreen(Screen::FILE_BROWSER);
     }
     

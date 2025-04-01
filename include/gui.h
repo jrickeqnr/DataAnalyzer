@@ -109,6 +109,8 @@ private:
     // State variables for each screen
     std::string selectedFilePath_;
     std::map<size_t, std::vector<size_t>> outliers_;
+    std::map<size_t, std::vector<size_t>> selectedOutliers_; // To store selected outliers
+    float outlierSensitivity_ = 1.5f; // Default sensitivity
     int selectedModelIndex_ = 0;
     std::vector<size_t> selectedFeatures_;
     std::vector<size_t> selectedTargetIndices_;

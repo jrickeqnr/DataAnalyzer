@@ -229,7 +229,8 @@ std::string DataHandler::getFrequencyString() const {
 }
 
 std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
-    const std::vector<size_t>& columnIndices) const {
+    const std::vector<size_t>& columnIndices,
+    double sensitivity) const {
     
     std::map<size_t, std::vector<size_t>> outliers;
     
@@ -286,9 +287,9 @@ std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
         // Calculate IQR (Interquartile Range)
         double iqr = q3 - q1;
         
-        // Define outlier thresholds (1.5 * IQR)
-        double lowerBound = q1 - 1.5 * iqr;
-        double upperBound = q3 + 1.5 * iqr;
+        // Define outlier thresholds (sensitivity * IQR)
+        double lowerBound = q1 - sensitivity * iqr;
+        double upperBound = q3 + sensitivity * iqr;
         
         // Find outliers (excluding NaN values)
         std::vector<size_t> colOutliers;
@@ -306,17 +307,28 @@ std::map<size_t, std::vector<size_t>> DataHandler::detectOutliers(
     return outliers;
 }
 
-bool DataHandler::fixOutliers(const std::map<size_t, std::vector<size_t>>& outliers) {
+bool DataHandler::fixOutliers(const std::map<size_t, std::vector<size_t>>& outliers,
+                             const std::map<size_t, std::vector<size_t>>& selectedOutliers) {
     if (numericData_.rows() == 0 || numericData_.cols() == 0) {
         return false;
     }
     
-    for (const auto& [col, rows] : outliers) {
+    // Use all outliers if selectedOutliers is empty
+    const std::map<size_t, std::vector<size_t>>& outliersToFix = 
+        selectedOutliers.empty() ? outliers : selectedOutliers;
+    
+    for (const auto& [col, rows] : outliersToFix) {
         if (static_cast<Eigen::Index>(col) >= numericData_.cols()) {
             continue;
         }
         
         for (size_t row : rows) {
+            // Skip if this row is not actually an outlier
+            if (outliers.find(col) == outliers.end() || 
+                std::find(outliers.at(col).begin(), outliers.at(col).end(), row) == outliers.at(col).end()) {
+                continue;
+            }
+            
             if (static_cast<Eigen::Index>(row) >= numericData_.rows()) {
                 continue;
             }

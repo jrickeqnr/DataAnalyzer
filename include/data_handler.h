@@ -119,17 +119,21 @@ public:
     /**
      * @brief Detect outliers in the data using the IQR method
      * @param columnIndices Indices of columns to check for outliers (default: all numeric columns)
+     * @param sensitivity Multiplier for IQR to determine outlier threshold (default: 1.5)
      * @return std::map<size_t, std::vector<size_t>> Map of column indices to row indices of outliers
      */
     std::map<size_t, std::vector<size_t>> detectOutliers(
-        const std::vector<size_t>& columnIndices = {}) const;
+        const std::vector<size_t>& columnIndices = {},
+        double sensitivity = 1.5) const;
     
     /**
      * @brief Fix outliers by interpolating with previous/next values
      * @param outliers Map of column indices to row indices of outliers
+     * @param selectedOutliers Map of column indices to list of selected row indices to fix (if empty, fix all outliers)
      * @return bool True if fixing was successful
      */
-    bool fixOutliers(const std::map<size_t, std::vector<size_t>>& outliers);
+    bool fixOutliers(const std::map<size_t, std::vector<size_t>>& outliers,
+                     const std::map<size_t, std::vector<size_t>>& selectedOutliers = {});
     
     /**
      * @brief Add seasonal features based on the detected frequency
