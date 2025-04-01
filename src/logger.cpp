@@ -68,6 +68,27 @@ void Logger::critical(const std::string& message) {
     log(LogLevel::CRITICAL, message);
 }
 
+// New methods with source information
+void Logger::debug(const std::string& message, const std::string& source) {
+    log(LogLevel::DEBUG, message, source);
+}
+
+void Logger::info(const std::string& message, const std::string& source) {
+    log(LogLevel::INFO, message, source);
+}
+
+void Logger::warning(const std::string& message, const std::string& source) {
+    log(LogLevel::WARNING, message, source);
+}
+
+void Logger::error(const std::string& message, const std::string& source) {
+    log(LogLevel::ERROR, message, source);
+}
+
+void Logger::critical(const std::string& message, const std::string& source) {
+    log(LogLevel::CRITICAL, message, source);
+}
+
 void Logger::log(LogLevel level, const std::string& message) {
     if (level < currentLevel_) {
         return;
@@ -76,6 +97,25 @@ void Logger::log(LogLevel level, const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::stringstream ss;
     ss << getTimestamp() << " [" << levelToString(level) << "] " << message << std::endl;
+    
+    if (consoleOutput_) {
+        std::cout << ss.str();
+    }
+    
+    if (logFile_.is_open()) {
+        logFile_ << ss.str();
+        logFile_.flush();
+    }
+}
+
+void Logger::log(LogLevel level, const std::string& message, const std::string& source) {
+    if (level < currentLevel_) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::stringstream ss;
+    ss << getTimestamp() << " [" << levelToString(level) << "] [" << source << "] " << message << std::endl;
     
     if (consoleOutput_) {
         std::cout << ss.str();

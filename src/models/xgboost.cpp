@@ -1,22 +1,35 @@
 #include "../../include/model.h"
+#include "../../include/logger.h"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
 #include <random>
 #include <queue>
 #include <limits>
+#include <sstream>
 
 namespace DataAnalyzer {
 
 XGBoost::XGBoost(int n_estimators, double learning_rate, int max_depth, double subsample)
     : n_estimators_(n_estimators), learning_rate_(learning_rate), max_depth_(max_depth),
       subsample_(subsample), base_prediction_(0.0), rmse_(0.0), r_squared_(0.0) {
+    std::stringstream ss;
+    ss << "Initialized model with n_estimators=" << n_estimators
+       << ", learning_rate=" << learning_rate
+       << ", max_depth=" << max_depth
+       << ", subsample=" << subsample;
+    LOG_CLASS_INFO("XGBoost", ss.str());
 }
 
 bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     if (X.rows() != y.rows() || X.rows() == 0) {
+        LOG_CLASS_ERROR("XGBoost", "Invalid input dimensions: X rows=" + std::to_string(X.rows()) + 
+                      ", y size=" + std::to_string(y.rows()));
         return false;
     }
+    
+    LOG_CLASS_INFO("XGBoost", "Starting training with " + std::to_string(X.rows()) + 
+                  " samples and " + std::to_string(X.cols()) + " features");
     
     // Initialize random number generator
     std::random_device rd;
@@ -26,12 +39,30 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     // Clear previous trees
     trees_.clear();
     
+    // Clear previous model state
+    rmse_ = 0.0;
+    r_squared_ = 0.0;
+    
+    // Keep only grid search stats if they exist, remove all other stats
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
+        }
+    }
+    stats_.clear();
+    stats_ = grid_search_stats;  // Restore only grid search stats
+    
+    // Initialize training progress
+    stats_["Training Progress"] = 0.0;
+    
     // Create working copies of data
     Eigen::MatrixXd X_train = X;
     Eigen::VectorXd y_train = y;
     
     // Initial prediction is the mean of the target values
     base_prediction_ = y_train.mean();
+    LOG_CLASS_DEBUG("XGBoost", "Initial prediction (base value): " + std::to_string(base_prediction_));
     
     // Initialize residuals and predictions
     Eigen::VectorXd residuals = y_train - Eigen::VectorXd::Constant(y_train.size(), base_prediction_);
@@ -60,9 +91,13 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
                 X_sub.row(j) = X_train.row(indices[j]);
                 residuals_sub(j) = residuals(indices[j]);
             }
+            LOG_CLASS_DEBUG("XGBoost", "Round " + std::to_string(i+1) + ": Using " + 
+                          std::to_string(sample_size) + " samples (subsample=" + 
+                          std::to_string(subsample_) + ")");
         } else {
             X_sub = X_train;
             residuals_sub = residuals;
+            LOG_CLASS_DEBUG("XGBoost", "Round " + std::to_string(i+1) + ": Using all samples");
         }
         
         // Build a regression tree
@@ -76,15 +111,29 @@ bool XGBoost::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
             predictions(j) += learning_rate_ * prediction;
             residuals(j) = y_train(j) - predictions(j);
         }
+        
+        // Log progress for every 10% or for specific iterations
+        if (i == 0 || i == n_estimators_ - 1 || (n_estimators_ > 10 && i % (n_estimators_ / 10) == 0)) {
+            double mse = residuals.array().square().mean();
+            LOG_CLASS_INFO("XGBoost", "Round " + std::to_string(i+1) + "/" + 
+                         std::to_string(n_estimators_) + ": MSE = " + std::to_string(mse));
+        }
     }
+    
+    // Set final training progress to 1.0 (100%)
+    stats_["Training Progress"] = 1.0;
     
     // Compute statistics
     computeStats(X, y);
+    LOG_CLASS_INFO("XGBoost", "Training complete. RMSE: " + std::to_string(rmse_) + 
+                  ", R2: " + std::to_string(r_squared_));
     
     return true;
 }
 
 Eigen::VectorXd XGBoost::predict(const Eigen::MatrixXd& X) const {
+    LOG_CLASS_DEBUG("XGBoost", "Predicting for " + std::to_string(X.rows()) + " samples");
+    
     // Initialize predictions with base prediction
     Eigen::VectorXd predictions = Eigen::VectorXd::Constant(X.rows(), base_prediction_);
     
@@ -137,8 +186,17 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
     if (X.rows() != y.rows() || n_estimators_values.empty() || 
         learning_rate_values.empty() || max_depth_values.empty() || 
         subsample_values.empty() || k <= 1) {
+        LOG_CLASS_ERROR("XGBoost", "Invalid grid search parameters");
         return {n_estimators_, learning_rate_, max_depth_, subsample_};
     }
+    
+    LOG_CLASS_INFO("XGBoost", "Starting grid search with " + std::to_string(X.rows()) + 
+                  " samples, " + std::to_string(X.cols()) + " features, " + 
+                  std::to_string(k) + " folds");
+    
+    // Create a temporary map for grid search statistics to avoid 
+    // polluting the main stats_ object
+    std::map<std::string, double> grid_search_stats;
     
     // Standardize features
     Eigen::MatrixXd X_std = X;
@@ -179,6 +237,12 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                            max_depth_values.size() * subsample_values.size();
     int current_combination = 0;
     
+    LOG_CLASS_INFO("XGBoost", "Grid search will evaluate " + 
+                  std::to_string(total_combinations) + " combinations");
+    
+    // Initialize progress in the main stats map
+    stats_["Grid Search Progress"] = 0.0;
+    
     // Grid search
     for (int n_estimators : n_estimators_values) {
         for (double learning_rate : learning_rate_values) {
@@ -188,8 +252,17 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                     double fold_rmse_sum = 0.0;
                     bool early_stop = false;
                     
-                    // Update progress in stats
-                    stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
+                    // Update progress in both the temporary stats and the main stats object
+                    double progress = static_cast<double>(current_combination) / total_combinations;
+                    grid_search_stats["Grid Search Progress"] = progress;
+                    stats_["Grid Search Progress"] = progress;
+                    
+                    LOG_CLASS_DEBUG("XGBoost", "Evaluating combination " + std::to_string(current_combination) + 
+                                  "/" + std::to_string(total_combinations) + 
+                                  ": n_estimators=" + std::to_string(n_estimators) + 
+                                  ", learning_rate=" + std::to_string(learning_rate) + 
+                                  ", max_depth=" + std::to_string(max_depth) + 
+                                  ", subsample=" + std::to_string(subsample));
                     
                     // K-fold cross-validation
                     for (int fold = 0; fold < k && !early_stop; ++fold) {
@@ -229,6 +302,8 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                         try {
                             if (!model.train(X_train, y_train)) {
                                 // If training fails, skip this combination
+                                LOG_CLASS_WARNING("XGBoost", "Training failed for fold " + 
+                                               std::to_string(fold+1) + ", skipping combination");
                                 early_stop = true;
                                 break;
                             }
@@ -239,13 +314,20 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                             
                             // Early stopping if RMSE is much worse than best
                             if (fold_rmse > 2.0 * best_rmse) {
+                                LOG_CLASS_DEBUG("XGBoost", "Early stopping for poor performance, RMSE=" + 
+                                              std::to_string(fold_rmse) + " vs best=" + 
+                                              std::to_string(best_rmse));
                                 early_stop = true;
                                 break;
                             }
                             
                             fold_rmse_sum += fold_rmse;
-                        } catch (const std::exception&) {
+                            LOG_CLASS_DEBUG("XGBoost", "Fold " + std::to_string(fold+1) + 
+                                          " RMSE: " + std::to_string(fold_rmse));
+                        } catch (const std::exception& e) {
                             // If any exception occurs, skip this combination
+                            LOG_CLASS_WARNING("XGBoost", "Exception in fold " + std::to_string(fold+1) + 
+                                           ": " + e.what());
                             early_stop = true;
                             break;
                         }
@@ -255,6 +337,9 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                         // Average RMSE across all folds
                         double avg_rmse = fold_rmse_sum / k;
                         
+                        LOG_CLASS_INFO("XGBoost", "Combination " + std::to_string(current_combination) +  
+                                     ": Average RMSE = " + std::to_string(avg_rmse));
+                        
                         // Update best hyperparameters if RMSE is improved
                         if (avg_rmse < best_rmse) {
                             best_rmse = avg_rmse;
@@ -262,12 +347,41 @@ std::tuple<int, double, int, double> XGBoost::gridSearch(
                             best_learning_rate = learning_rate;
                             best_max_depth = max_depth;
                             best_subsample = subsample;
+                            
+                            LOG_CLASS_INFO("XGBoost", "New best combination found! RMSE = " + 
+                                         std::to_string(best_rmse));
+                            
+                            // Store best parameters in grid search stats
+                            grid_search_stats["Best RMSE"] = best_rmse;
+                            grid_search_stats["Best N Estimators"] = static_cast<double>(best_n_estimators);
+                            grid_search_stats["Best Learning Rate"] = best_learning_rate;
+                            grid_search_stats["Best Max Depth"] = static_cast<double>(best_max_depth);
+                            grid_search_stats["Best Subsample"] = best_subsample;
                         }
                     }
                 }
             }
         }
     }
+    
+    // Set final grid search progress to 1.0 (100%)
+    stats_["Grid Search Progress"] = 1.0;
+    
+    // Store the best grid search results in the model's stats
+    stats_["Grid Search Best RMSE"] = grid_search_stats["Best RMSE"];
+    stats_["Grid Search Best N Estimators"] = grid_search_stats["Best N Estimators"];
+    stats_["Grid Search Best Learning Rate"] = grid_search_stats["Best Learning Rate"];
+    stats_["Grid Search Best Max Depth"] = grid_search_stats["Best Max Depth"];
+    stats_["Grid Search Best Subsample"] = grid_search_stats["Best Subsample"];
+    
+    std::stringstream ss;
+    ss << "Grid search complete. Best hyperparameters: "
+       << "n_estimators=" << best_n_estimators
+       << ", learning_rate=" << best_learning_rate
+       << ", max_depth=" << best_max_depth
+       << ", subsample=" << best_subsample
+       << ", RMSE=" << best_rmse;
+    LOG_CLASS_INFO("XGBoost", ss.str());
     
     return {best_n_estimators, best_learning_rate, best_max_depth, best_subsample};
 }
@@ -333,27 +447,50 @@ void XGBoost::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
         avg_leaves /= trees_.size();
     }
     
-    // Store all statistics in the stats map
-    stats_ = {
+    // Store grid search results temporarily
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
+        }
+    }
+    
+    // Store training progress
+    double training_progress = 1.0;
+    if (stats_.find("Training Progress") != stats_.end()) {
+        training_progress = stats_["Training Progress"];
+    }
+    
+    // Create new stats map with current statistics
+    std::map<std::string, double> new_stats = {
         {"RMSE", rmse_},
         {"MSE", mse},
         {"MAE", mae},
-        {"R²", r_squared_},
+        {"R2", r_squared_},
         {"Number of Trees", static_cast<double>(trees_.size())},
         {"Average Tree Depth", avg_depth},
         {"Average Leaf Nodes", avg_leaves},
         {"Training Loss", mse}, // Using MSE as the training loss
         {"Learning Rate", learning_rate_},
         {"Max Tree Depth", static_cast<double>(max_depth_)},
-        {"Subsample Ratio", subsample_}
+        {"Subsample Ratio", subsample_},
+        {"Training Progress", training_progress}
     };
     
     // Store feature importance scores with proper naming
     if (importance.size() > 0) {
         for (int i = 0; i < importance.size(); ++i) {
-            stats_["Feature " + std::to_string(i) + " Importance"] = importance(i);
+            new_stats["Feature " + std::to_string(i) + " Importance"] = importance(i);
         }
     }
+    
+    // Restore grid search stats
+    for (const auto& pair : grid_search_stats) {
+        new_stats[pair.first] = pair.second;
+    }
+    
+    // Replace stats with new stats
+    stats_ = new_stats;
 }
 
 double XGBoost::computeAverageTreeDepth() const {
@@ -588,4 +725,4 @@ Eigen::VectorXd XGBoost::getFeatureImportance() const {
     return importance;
 }
 
-} // namespace DataAnalyzer 
+} // namespace DataAnalyzer

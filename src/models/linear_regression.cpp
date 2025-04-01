@@ -161,8 +161,8 @@ void LinearRegression::computeStats(const Eigen::MatrixXd& X, const Eigen::Vecto
         {"RMSE", rmse_},
         {"MSE", mse},
         {"MAE", mae},
-        {"R²", r_squared_},
-        {"Adjusted R²", adj_r_squared},
+        {"R2", r_squared_},
+        {"Adjusted R2", adj_r_squared},
         {"AIC", aic},
         {"BIC", bic}
     };

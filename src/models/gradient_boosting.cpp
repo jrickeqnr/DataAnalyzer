@@ -1,25 +1,55 @@
 #include "../../include/model.h"
+#include "../../include/logger.h"
 #include <cmath>
 #include <algorithm>
 #include <numeric>
 #include <random>
 #include <queue>
 #include <limits>
+#include <sstream>
 
 namespace DataAnalyzer {
 
 GradientBoosting::GradientBoosting(int n_estimators, double learning_rate, int max_depth, int min_samples_split)
     : n_estimators_(n_estimators), learning_rate_(learning_rate), max_depth_(max_depth),
       min_samples_split_(min_samples_split), initial_prediction_(0.0), rmse_(0.0), r_squared_(0.0) {
+    std::stringstream ss;
+    ss << "Initialized model with n_estimators=" << n_estimators
+       << ", learning_rate=" << learning_rate
+       << ", max_depth=" << max_depth
+       << ", min_samples_split=" << min_samples_split;
+    LOG_CLASS_INFO("GradientBoosting", ss.str());
 }
 
 bool GradientBoosting::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     if (X.rows() != y.rows() || X.rows() == 0) {
+        LOG_CLASS_ERROR("GradientBoosting", "Invalid input dimensions: X rows=" + std::to_string(X.rows()) + 
+                        ", y size=" + std::to_string(y.rows()));
         return false;
     }
     
+    LOG_CLASS_INFO("GradientBoosting", "Starting training with " + std::to_string(X.rows()) + 
+                   " samples and " + std::to_string(X.cols()) + " features");
+    
     // Clear previous trees
     trees_.clear();
+    
+    // Clear previous model state
+    rmse_ = 0.0;
+    r_squared_ = 0.0;
+    
+    // Keep only grid search stats if they exist, remove all other stats
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
+        }
+    }
+    stats_.clear();
+    stats_ = grid_search_stats;  // Restore only grid search stats
+    
+    // Initialize training progress
+    stats_["Training Progress"] = 0.0;
     
     // Standardize features
     Eigen::MatrixXd X_train = X;
@@ -45,8 +75,13 @@ bool GradientBoosting::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y)
     target_mean_ = y_mean;
     target_std_ = y_std;
     
+    LOG_CLASS_DEBUG("GradientBoosting", "Data standardized, target mean=" + 
+                    std::to_string(y_mean) + ", target std=" + std::to_string(y_std));
+    
     // Initial prediction is the mean of the target
     initial_prediction_ = y_train.mean();
+    LOG_CLASS_DEBUG("GradientBoosting", "Initial prediction (base value): " + 
+                    std::to_string(initial_prediction_));
     
     // Initialize predictions with the initial value
     Eigen::VectorXd predictions = Eigen::VectorXd::Constant(y_train.size(), initial_prediction_);
@@ -70,19 +105,36 @@ bool GradientBoosting::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y)
             residuals(j) = y_train(j) - predictions(j);
         }
         
+        // Log progress for every 10% or for specific iterations
+        if (i == 0 || i == n_estimators_ - 1 || (n_estimators_ > 10 && i % (n_estimators_ / 10) == 0)) {
+            double mse = residuals.array().square().mean();
+            LOG_CLASS_INFO("GradientBoosting", "Round " + std::to_string(i+1) + "/" + 
+                           std::to_string(n_estimators_) + ": MSE = " + std::to_string(mse));
+        }
+        
         // Early stopping if residuals are very small
         if (residuals.norm() < 1e-3) {  // Made even less aggressive
+            LOG_CLASS_INFO("GradientBoosting", "Early stopping at round " + 
+                           std::to_string(i+1) + " due to small residuals");
             break;
         }
     }
     
+    // Set final training progress to 1.0 (100%)
+    stats_["Training Progress"] = 1.0;
+    
     // Compute statistics using original scale data
     computeStats(X, y);
+    LOG_CLASS_INFO("GradientBoosting", "Training complete. Trees built: " + 
+                   std::to_string(trees_.size()) + ", RMSE: " + std::to_string(rmse_) + 
+                   ", R2: " + std::to_string(r_squared_));
     
     return true;
 }
 
 Eigen::VectorXd GradientBoosting::predict(const Eigen::MatrixXd& X) const {
+    LOG_CLASS_DEBUG("GradientBoosting", "Predicting for " + std::to_string(X.rows()) + " samples");
+    
     // Standardize input features
     Eigen::MatrixXd X_std = X;
     for (int i = 0; i < X.cols(); ++i) {
@@ -145,8 +197,17 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
     if (X.rows() != y.rows() || n_estimators_values.empty() || 
         learning_rate_values.empty() || max_depth_values.empty() || 
         min_samples_split_values.empty() || k <= 1) {
+        LOG_CLASS_ERROR("GradientBoosting", "Invalid grid search parameters");
         return {n_estimators_, learning_rate_, max_depth_, min_samples_split_};
     }
+    
+    LOG_CLASS_INFO("GradientBoosting", "Starting grid search with " + std::to_string(X.rows()) + 
+                   " samples, " + std::to_string(X.cols()) + " features, " + 
+                   std::to_string(k) + " folds");
+    
+    // Create a temporary map for grid search statistics to avoid 
+    // polluting the main stats_ object
+    std::map<std::string, double> grid_search_stats;
     
     // Standardize features
     Eigen::MatrixXd X_std = X;
@@ -192,6 +253,12 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                            max_depth_values.size() * min_samples_split_values.size();
     int current_combination = 0;
     
+    LOG_CLASS_INFO("GradientBoosting", "Grid search will evaluate " + 
+                   std::to_string(total_combinations) + " combinations");
+    
+    // Initialize progress in the main stats map
+    stats_["Grid Search Progress"] = 0.0;
+    
     // Grid search
     for (int n_estimators : n_estimators_values) {
         for (double learning_rate : learning_rate_values) {
@@ -202,8 +269,17 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                     bool early_stop = false;
                     int valid_folds = 0;
                     
-                    // Update progress in stats
-                    stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
+                    // Update progress in both the temporary stats and the main stats object
+                    double progress = static_cast<double>(current_combination) / total_combinations;
+                    grid_search_stats["Grid Search Progress"] = progress;
+                    stats_["Grid Search Progress"] = progress;
+                    
+                    LOG_CLASS_DEBUG("GradientBoosting", "Evaluating combination " + std::to_string(current_combination) + 
+                                   "/" + std::to_string(total_combinations) + 
+                                   ": n_estimators=" + std::to_string(n_estimators) + 
+                                   ", learning_rate=" + std::to_string(learning_rate) + 
+                                   ", max_depth=" + std::to_string(max_depth) + 
+                                   ", min_samples_split=" + std::to_string(min_samples_split));
                     
                     // K-fold cross-validation
                     for (int fold = 0; fold < k && !early_stop; ++fold) {
@@ -243,6 +319,8 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                             
                             if (!model.train(X_train, y_train)) {
                                 // If training fails, skip this combination
+                                LOG_CLASS_WARNING("GradientBoosting", "Training failed for fold " + 
+                                                std::to_string(fold+1) + ", skipping combination");
                                 early_stop = true;
                                 break;
                             }
@@ -258,6 +336,8 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                             
                             // Check for numerical stability
                             if (!std::isfinite(fold_rmse)) {  // Only check for non-finite values
+                                LOG_CLASS_WARNING("GradientBoosting", "Non-finite RMSE in fold " + 
+                                                std::to_string(fold+1) + ", skipping combination");
                                 early_stop = true;
                                 break;
                             }
@@ -265,6 +345,9 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                             // Early stopping if RMSE is much worse than best
                             if (best_rmse < std::numeric_limits<double>::max() && 
                                 fold_rmse > 10.0 * best_rmse) {  // Made more lenient
+                                LOG_CLASS_DEBUG("GradientBoosting", "Early stopping for poor performance, RMSE=" + 
+                                              std::to_string(fold_rmse) + " vs best=" + 
+                                              std::to_string(best_rmse));
                                 early_stop = true;
                                 break;
                             }
@@ -272,8 +355,13 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                             fold_rmse_sum += fold_rmse;
                             valid_folds++;
                             
-                        } catch (const std::exception&) {
+                            LOG_CLASS_DEBUG("GradientBoosting", "Fold " + std::to_string(fold+1) + 
+                                          " RMSE: " + std::to_string(fold_rmse));
+                            
+                        } catch (const std::exception& e) {
                             // If any exception occurs, skip this combination
+                            LOG_CLASS_WARNING("GradientBoosting", "Exception in fold " + std::to_string(fold+1) + 
+                                            ": " + e.what());
                             early_stop = true;
                             break;
                         }
@@ -283,6 +371,9 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                         // Average RMSE across valid folds
                         double avg_rmse = fold_rmse_sum / valid_folds;
                         
+                        LOG_CLASS_INFO("GradientBoosting", "Combination " + std::to_string(current_combination) +  
+                                      ": Average RMSE = " + std::to_string(avg_rmse));
+                        
                         // Update best hyperparameters if RMSE is improved
                         if (avg_rmse < best_rmse) {
                             best_rmse = avg_rmse;
@@ -291,18 +382,40 @@ std::tuple<int, double, int, int> GradientBoosting::gridSearch(
                             best_max_depth = max_depth;
                             best_min_samples_split = min_samples_split;
                             
-                            // Store best parameters in stats
-                            stats_["Best RMSE"] = best_rmse;
-                            stats_["Best N Estimators"] = static_cast<double>(best_n_estimators);
-                            stats_["Best Learning Rate"] = best_learning_rate;
-                            stats_["Best Max Depth"] = static_cast<double>(best_max_depth);
-                            stats_["Best Min Samples Split"] = static_cast<double>(best_min_samples_split);
+                            LOG_CLASS_INFO("GradientBoosting", "New best combination found! RMSE = " + 
+                                          std::to_string(best_rmse));
+                            
+                            // Store best parameters in grid search stats
+                            grid_search_stats["Best RMSE"] = best_rmse;
+                            grid_search_stats["Best N Estimators"] = static_cast<double>(best_n_estimators);
+                            grid_search_stats["Best Learning Rate"] = best_learning_rate;
+                            grid_search_stats["Best Max Depth"] = static_cast<double>(best_max_depth);
+                            grid_search_stats["Best Min Samples Split"] = static_cast<double>(best_min_samples_split);
                         }
                     }
                 }
             }
         }
     }
+    
+    // Set final grid search progress to 1.0 (100%)
+    stats_["Grid Search Progress"] = 1.0;
+    
+    // Store the best grid search results in the model's stats
+    stats_["Grid Search Best RMSE"] = grid_search_stats["Best RMSE"];
+    stats_["Grid Search Best N Estimators"] = grid_search_stats["Best N Estimators"];
+    stats_["Grid Search Best Learning Rate"] = grid_search_stats["Best Learning Rate"];
+    stats_["Grid Search Best Max Depth"] = grid_search_stats["Best Max Depth"];
+    stats_["Grid Search Best Min Samples Split"] = grid_search_stats["Best Min Samples Split"];
+    
+    std::stringstream ss;
+    ss << "Grid search complete. Best hyperparameters: "
+       << "n_estimators=" << best_n_estimators
+       << ", learning_rate=" << best_learning_rate
+       << ", max_depth=" << best_max_depth
+       << ", min_samples_split=" << best_min_samples_split
+       << ", RMSE=" << best_rmse;
+    LOG_CLASS_INFO("GradientBoosting", ss.str());
     
     return {best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split};
 }
@@ -366,38 +479,50 @@ void GradientBoosting::computeStats(const Eigen::MatrixXd& X, const Eigen::Vecto
         avg_leaf_nodes /= trees_.size();
     }
     
-    // Store all statistics in the stats map
-    stats_ = {
+    // Store grid search results temporarily
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
+        }
+    }
+    
+    // Store training progress
+    double training_progress = 1.0;
+    if (stats_.find("Training Progress") != stats_.end()) {
+        training_progress = stats_["Training Progress"];
+    }
+    
+    // Create new stats map with current statistics
+    std::map<std::string, double> new_stats = {
         {"RMSE", rmse_},
         {"MSE", mse},
         {"MAE", mae},
-        {"R²", r_squared_},
+        {"R2", r_squared_},
         {"Number of Trees", static_cast<double>(trees_.size())},
         {"Average Tree Depth", avg_tree_depth},
         {"Average Leaf Nodes", avg_leaf_nodes},
         {"Training Loss", mse}, // Using MSE as the training loss
         {"Learning Rate", learning_rate_},
         {"Max Tree Depth", static_cast<double>(max_depth_)},
-        {"Min Samples Split", static_cast<double>(min_samples_split_)}
+        {"Min Samples Split", static_cast<double>(min_samples_split_)},
+        {"Training Progress", training_progress}
     };
     
     // Store feature importance scores with proper naming
     if (importance.size() > 0) {
         for (int i = 0; i < importance.size(); ++i) {
-            stats_["Feature " + std::to_string(i) + " Importance"] = importance(i);
+            new_stats["Feature " + std::to_string(i) + " Importance"] = importance(i);
         }
     }
     
-    // Store additional tree-specific statistics
-    for (size_t i = 0; i < trees_.size(); ++i) {
-        int leaf_count = 0;
-        for (const auto& node : trees_[i].nodes) {
-            if (node.is_leaf) {
-                leaf_count++;
-            }
-        }
-        stats_["Tree_" + std::to_string(i) + "_Leaf_Count"] = static_cast<double>(leaf_count);
+    // Restore grid search stats
+    for (const auto& pair : grid_search_stats) {
+        new_stats[pair.first] = pair.second;
     }
+    
+    // Replace stats with new stats
+    stats_ = new_stats;
 }
 
 GradientBoosting::DecisionTree GradientBoosting::buildTree(

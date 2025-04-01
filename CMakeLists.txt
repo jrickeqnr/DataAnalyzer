@@ -5,11 +5,9 @@ project(DataAnalyzer VERSION 1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add compiler flags
-if(MSVC)
-    add_compile_options(/W4 /EHsc /bigobj)
-else()
-    add_compile_options(-Wall -Wextra -pedantic)
+# Set build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
 endif()
 
 # Add source files
@@ -39,6 +37,21 @@ set(HEADERS
 
 # Build the executable
 add_executable(DataAnalyzer ${SOURCES} ${HEADERS})
+
+# Set compiler flags and optimization options for the main target
+if(MSVC)
+    target_compile_options(DataAnalyzer PRIVATE
+        /W4 /EHsc /bigobj
+        $<$<CONFIG:Release>:/O2 /Ob2 /DNDEBUG>
+        $<$<CONFIG:Debug>:/Od /Zi>
+    )
+else()
+    target_compile_options(DataAnalyzer PRIVATE
+        -Wall -Wextra -pedantic
+        $<$<CONFIG:Release>:-O3 -DNDEBUG>
+        $<$<CONFIG:Debug>:-O0 -g>
+    )
+endif()
 
 # Include directories
 target_include_directories(DataAnalyzer PRIVATE

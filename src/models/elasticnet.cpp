@@ -19,56 +19,94 @@ ElasticNet::ElasticNet(double alpha, double lambda, int max_iter, double tol)
 }
 
 bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
-    if (X.rows() != y.rows() || X.rows() == 0) {
+    if (X.rows() != y.rows() || X.cols() == 0) {
         LOG_ERROR("Invalid input dimensions for training");
         return false;
     }
     
     LOG_INFO("Starting ElasticNet training...");
     
-    // Prepare data (standardize features)
-    Eigen::VectorXd X_mean = X.colwise().mean();
-    Eigen::VectorXd X_std = ((X.rowwise() - X_mean.transpose()).array().square().colwise().sum() / X.rows()).sqrt();
+    // Clear previous model state
+    coefficients_.resize(0);
+    intercept_ = 0.0;
+    rmse_ = 0.0;
+    r_squared_ = 0.0;
     
-    // Handle zero standard deviation
-    for (int i = 0; i < X_std.size(); ++i) {
-        if (X_std(i) < 1e-10) {
-            X_std(i) = 1.0;
-            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
+    // Keep only grid search stats if they exist, remove all other stats
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
         }
     }
+    stats_.clear();
+    stats_ = grid_search_stats;  // Restore only grid search stats
     
-    Eigen::MatrixXd X_scaled = (X.rowwise() - X_mean.transpose()).array().rowwise() / X_std.transpose().array();
+    // Initialize training progress
+    stats_["Training Progress"] = 0.0;
+    
+    // Standardize features using population statistics (divide by n)
+    Eigen::MatrixXd X_std = X;
+    Eigen::VectorXd X_mean = X.colwise().mean();
+    Eigen::VectorXd X_std_dev = ((X.rowwise() - X_mean.transpose()).array().square().colwise().sum() / X.rows()).sqrt();
+    
+    for (int i = 0; i < X.cols(); ++i) {
+        if (X_std_dev(i) < 1e-10) {  // Handle near-zero standard deviation
+            X_std_dev(i) = 1.0;
+            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
+        }
+        X_std.col(i) = (X.col(i).array() - X_mean(i)) / X_std_dev(i);
+    }
+    
+    // Standardize target variable using population statistics
+    double y_mean = y.mean();
+    double y_std = std::sqrt((y.array() - y_mean).square().sum() / y.rows());
+    if (y_std < 1e-10) {
+        y_std = 1.0;
+        LOG_WARNING("Target variable has near-zero standard deviation");
+    }
+    Eigen::VectorXd y_scaled = (y.array() - y_mean) / y_std;
     
     // Initialize coefficients
     coefficients_ = Eigen::VectorXd::Zero(X.cols());
-    double y_mean = y.mean();
-    Eigen::VectorXd y_centered = y.array() - y_mean;
-    
-    // Coordinate descent algorithm
     double prev_loss = std::numeric_limits<double>::max();
     
+    // Coordinate descent
     for (int iter = 0; iter < max_iter_; ++iter) {
-        // Update training progress
+        // Update training progress in the stats map for the GUI
         stats_["Training Progress"] = static_cast<double>(iter) / max_iter_;
         
-        // Update each coefficient using coordinate descent
+        // Update each coefficient
         for (int j = 0; j < X.cols(); ++j) {
-            // Calculate the soft threshold value
-            double rho = X_scaled.col(j).dot(y_centered - X_scaled * coefficients_ + coefficients_(j) * X_scaled.col(j));
-            double beta = softThreshold(rho, lambda_ * alpha_);
+            // Calculate r_j = y - X*beta + x_j*beta_j
+            Eigen::VectorXd r = y_scaled - X_std * coefficients_;
+            r += X_std.col(j) * coefficients_(j);
             
-            if (beta != 0) {
-                // Update coefficient with L2 regularization
-                coefficients_(j) = beta / (1.0 + lambda_ * (1.0 - alpha_));
-            } else {
+            // Calculate coordinate descent update
+            double rho = X_std.col(j).dot(r);
+            double xj_norm = X_std.col(j).squaredNorm();
+            
+            if (xj_norm < 1e-10) {
                 coefficients_(j) = 0.0;
+                continue;
             }
+            
+            // Soft thresholding
+            double beta_j = rho / xj_norm;
+            if (beta_j > lambda_ * alpha_) {
+                beta_j -= lambda_ * alpha_;
+            } else if (beta_j < -lambda_ * alpha_) {
+                beta_j += lambda_ * alpha_;
+            } else {
+                beta_j = 0.0;
+            }
+            
+            // Update coefficient
+            coefficients_(j) = beta_j;
         }
         
-        // Calculate loss function
-        Eigen::VectorXd predictions = X_scaled * coefficients_;
-        double loss = (y_centered - predictions).squaredNorm() / (2 * X.rows());
+        // Calculate loss
+        double loss = (y_scaled - X_std * coefficients_).squaredNorm() / (2 * X.rows());
         loss += lambda_ * alpha_ * coefficients_.array().abs().sum();
         loss += 0.5 * lambda_ * (1.0 - alpha_) * coefficients_.squaredNorm();
         
@@ -89,9 +127,12 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
         }
     }
     
+    // Set final training progress to 1.0 (100%)
+    stats_["Training Progress"] = 1.0;
+    
     // Rescale coefficients back to original scale
     for (int j = 0; j < X.cols(); ++j) {
-        coefficients_(j) /= X_std(j);
+        coefficients_(j) = coefficients_(j) * y_std / X_std_dev(j);
     }
     
     // Calculate intercept
@@ -149,20 +190,30 @@ std::pair<double, double> ElasticNet::gridSearch(
     
     LOG_INFO("Starting grid search for hyperparameters...");
     
-    // Standardize features
+    // Create a temporary map for grid search statistics to avoid 
+    // polluting the main stats_ object
+    std::map<std::string, double> grid_search_stats;
+    
+    // Standardize features using population statistics (divide by n)
     Eigen::MatrixXd X_std = X;
     Eigen::VectorXd mean = X.colwise().mean();
-    Eigen::VectorXd std = ((X.rowwise() - mean.transpose()).array().square().colwise().sum() / (X.rows() - 1)).sqrt();
+    Eigen::VectorXd std = ((X.rowwise() - mean.transpose()).array().square().colwise().sum() / X.rows()).sqrt();
     
     for (int i = 0; i < X.cols(); ++i) {
-        if (std(i) > 1e-10) {  // Avoid division by zero
-            X_std.col(i) = (X.col(i).array() - mean(i)) / std(i);
+        if (std(i) < 1e-10) {  // Handle near-zero standard deviation
+            std(i) = 1.0;
+            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
         }
+        X_std.col(i) = (X.col(i).array() - mean(i)) / std(i);
     }
     
-    // Standardize target variable
+    // Standardize target variable using population statistics
     double y_mean = y.mean();
-    double y_std = std::sqrt((y.array() - y_mean).square().sum() / (y.size() - 1));
+    double y_std = std::sqrt((y.array() - y_mean).square().sum() / y.rows());
+    if (y_std < 1e-10) {
+        y_std = 1.0;
+        LOG_WARNING("Target variable has near-zero standard deviation");
+    }
     Eigen::VectorXd y_std_vec = (y.array() - y_mean) / y_std;
     
     // Prepare k-fold cross-validation indices once
@@ -185,21 +236,29 @@ std::pair<double, double> ElasticNet::gridSearch(
     double best_alpha = alpha_;
     double best_lambda = lambda_;
     double best_rmse = std::numeric_limits<double>::max();
+    double best_r2 = -std::numeric_limits<double>::max();
     
     // Grid search with progress tracking
     int total_combinations = alpha_values.size() * lambda_values.size();
     int current_combination = 0;
+    
+    // Initialize progress in the main stats map
+    stats_["Grid Search Progress"] = 0.0;
     
     // Grid search
     for (double alpha : alpha_values) {
         for (double lambda : lambda_values) {
             current_combination++;
             double fold_rmse_sum = 0.0;
+            double fold_r2_sum = 0.0;
             bool early_stop = false;
             int valid_folds = 0;
             
-            // Update progress in stats
-            stats_["Grid Search Progress"] = static_cast<double>(current_combination) / total_combinations;
+            // Update progress in both the temporary stats and the main stats object
+            // This ensures the GUI can see the progress
+            double progress = static_cast<double>(current_combination) / total_combinations;
+            grid_search_stats["Grid Search Progress"] = progress;
+            stats_["Grid Search Progress"] = progress;
             
             std::stringstream ss;
             ss << "Testing alpha=" << alpha << ", lambda=" << lambda 
@@ -251,26 +310,27 @@ std::pair<double, double> ElasticNet::gridSearch(
                     // Evaluate on validation set
                     Eigen::VectorXd predictions = model.predict(X_val);
                     
-                    // Convert predictions and targets back to original scale
-                    predictions = predictions.array() * y_std + y_mean;
-                    Eigen::VectorXd y_val_orig = y_val.array() * y_std + y_mean;
-                    
-                    double fold_rmse = std::sqrt((predictions - y_val_orig).array().square().mean());
+                    // Calculate RMSE and R² on validation set
+                    double fold_rmse = std::sqrt((predictions - y_val).array().square().mean());
+                    double fold_r2 = 1.0 - ((predictions - y_val).array().square().sum() / 
+                                          (y_val.array() - y_val.mean()).square().sum());
                     
                     // Check for numerical stability
-                    if (!std::isfinite(fold_rmse) || fold_rmse > 1e6) {
+                    if (!std::isfinite(fold_rmse) || !std::isfinite(fold_r2) || 
+                        fold_rmse > 1e6 || fold_r2 < -1e6) {
                         early_stop = true;
                         break;
                     }
                     
                     // Early stopping if RMSE is much worse than best
                     if (best_rmse < std::numeric_limits<double>::max() && 
-                        fold_rmse > 2.0 * best_rmse) {
+                        fold_rmse > 5.0 * best_rmse) {  // Made stricter
                         early_stop = true;
                         break;
                     }
                     
                     fold_rmse_sum += fold_rmse;
+                    fold_r2_sum += fold_r2;
                     valid_folds++;
                     
                 } catch (const std::exception&) {
@@ -281,32 +341,47 @@ std::pair<double, double> ElasticNet::gridSearch(
             }
             
             if (!early_stop && valid_folds > 0) {
-                // Average RMSE across valid folds
+                // Average RMSE and R² across valid folds
                 double avg_rmse = fold_rmse_sum / valid_folds;
+                double avg_r2 = fold_r2_sum / valid_folds;
                 
-                // Update best hyperparameters if RMSE is improved
-                if (avg_rmse < best_rmse) {
+                // Update best hyperparameters if both RMSE and R² are improved
+                if (avg_rmse < best_rmse && avg_r2 > best_r2) {
                     best_rmse = avg_rmse;
+                    best_r2 = avg_r2;
                     best_alpha = alpha;
                     best_lambda = lambda;
                     
                     std::stringstream ss;
                     ss << "New best parameters found - alpha=" << alpha 
-                       << ", lambda=" << lambda << ", RMSE=" << avg_rmse;
+                       << ", lambda=" << lambda << ", RMSE=" << avg_rmse 
+                       << ", R2=" << avg_r2;
                     LOG_INFO(ss.str());
                     
-                    // Store best parameters in stats
-                    stats_["Best RMSE"] = best_rmse;
-                    stats_["Best Alpha"] = best_alpha;
-                    stats_["Best Lambda"] = best_lambda;
+                    // Store best parameters in grid search stats (not in the model's stats)
+                    grid_search_stats["Best RMSE"] = best_rmse;
+                    grid_search_stats["Best R2"] = best_r2;
+                    grid_search_stats["Best Alpha"] = best_alpha;
+                    grid_search_stats["Best Lambda"] = best_lambda;
                 }
             }
         }
     }
     
+    // Set final grid search progress to 1.0 (100%)
+    stats_["Grid Search Progress"] = 1.0;
+    
+    // Store the best grid search results in the model's stats
+    // This way we only update the model's stats once, with the best values
+    stats_["Grid Search Best RMSE"] = grid_search_stats["Best RMSE"];
+    stats_["Grid Search Best R2"] = grid_search_stats["Best R2"];
+    stats_["Grid Search Best Alpha"] = grid_search_stats["Best Alpha"];
+    stats_["Grid Search Best Lambda"] = grid_search_stats["Best Lambda"];
+    
     std::stringstream ss;
     ss << "Grid search completed. Best parameters - alpha=" << best_alpha 
-       << ", lambda=" << best_lambda << ", RMSE=" << best_rmse;
+       << ", lambda=" << best_lambda << ", RMSE=" << best_rmse 
+       << ", R2=" << best_r2;
     LOG_INFO(ss.str());
     
     return {best_alpha, best_lambda};
@@ -372,13 +447,21 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
     double l1_norm = coefficients_.array().abs().sum();
     double l2_norm = coefficients_.norm();
     
-    // Store all statistics in the stats map
-    stats_ = {
+    // Store grid search results temporarily
+    std::map<std::string, double> grid_search_stats;
+    for (const auto& pair : stats_) {
+        if (pair.first.substr(0, 11) == "Grid Search") {
+            grid_search_stats[pair.first] = pair.second;
+        }
+    }
+    
+    // Create new stats map with current statistics
+    std::map<std::string, double> new_stats = {
         {"RMSE", rmse_},
         {"MSE", mse},
         {"MAE", mae},
-        {"R²", r_squared_},
-        {"Adjusted R²", adj_r_squared},
+        {"R2", r_squared_},
+        {"Adjusted R2", adj_r_squared},
         {"AIC", aic},
         {"BIC", bic},
         {"L1 Norm", l1_norm},
@@ -389,9 +472,17 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
     
     // Store coefficient statistics
     for (int i = 0; i < p; ++i) {
-        stats_["SE_" + std::to_string(i)] = std_errors(i + 1);
-        stats_["t_value_" + std::to_string(i)] = t_values(i + 1);
+        new_stats["SE_" + std::to_string(i)] = std_errors(i + 1);
+        new_stats["t_value_" + std::to_string(i)] = t_values(i + 1);
     }
+    
+    // Restore grid search stats
+    for (const auto& pair : grid_search_stats) {
+        new_stats[pair.first] = pair.second;
+    }
+    
+    // Replace stats with new stats
+    stats_ = new_stats;
     
     // Log important statistics
     std::stringstream ss;
