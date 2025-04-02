@@ -143,6 +143,67 @@ public:
     bool addSeasonalFeatures(size_t dateColumnIndex = 0);
     
     /**
+     * @brief Add lag features for time series modeling
+     * @param lagValues Number of lag periods to add
+     * @return bool True if lag features were added successfully
+     */
+    bool addLagFeatures(int lagValues);
+    
+    /**
+     * @brief Add lag features with variable-specific lags
+     * @param maxLagValues Maximum number of lag periods to consider
+     * @param bestLagsMap Reference to a map to store the best lag for each feature
+     * @return bool True if lag features were added successfully
+     */
+    bool addVariableLagFeatures(int maxLagValues, std::map<std::string, int>& bestLagsMap);
+    
+    /**
+     * @brief Find best lag values for each feature based on correlation with target
+     * @param maxLag Maximum lag to consider
+     * @return std::map<std::string, int> Map of feature names to their best lag values
+     */
+    std::map<std::string, int> findBestLagValues(int maxLag) const;
+    
+    /**
+     * @brief Add seasonal lag features for time series modeling
+     * @param seasonality Number of seasonal periods to add
+     * @return bool True if seasonal lag features were added successfully
+     */
+    bool addSeasonalLags(int seasonality);
+    
+    /**
+     * @brief Set the lag values parameter
+     * @param lagValues Number of lag periods
+     */
+    void setLagValues(int lagValues) {
+        lagValues_ = lagValues;
+    }
+    
+    /**
+     * @brief Set the seasonality parameter
+     * @param seasonality Number of seasonal periods
+     */
+    void setSeasonality(int seasonality) {
+        seasonality_ = seasonality;
+    }
+    
+    /**
+     * @brief Get the lag values parameter
+     * @return int Number of lag periods
+     */
+    int getLagValues() const {
+        return lagValues_;
+    }
+    
+    /**
+     * @brief Get the seasonality parameter
+     * @return int Number of seasonal periods
+     */
+    int getSeasonality() const {
+        return seasonality_;
+    }
+    
+    /**
      * @brief Get the data summary
      * @return std::string Summary of the data
      */
@@ -206,14 +267,22 @@ public:
      * @brief Get the feature names for the selected features
      * @return std::vector<std::string> Feature names
      */
-    std::vector<std::string> getFeatureNames() const {
-        std::vector<std::string> names;
-        for (size_t idx : selectedFeatures_) {
-            if (idx < columnNames_.size()) {
-                names.push_back(columnNames_[idx]);
-            }
-        }
-        return names;
+    std::vector<std::string> getFeatureNames() const;
+
+    /**
+     * @brief Get the best lag values found during model training
+     * @return std::map<std::string, int> Map of feature names to their best lag values
+     */
+    std::map<std::string, int> getBestLagValues() const {
+        return bestLagValues_;
+    }
+    
+    /**
+     * @brief Set the best lag values after model training
+     * @param bestLags Map of feature names to their best lag values
+     */
+    void setBestLagValues(const std::map<std::string, int>& bestLags) {
+        bestLagValues_ = bestLags;
     }
 
 private:
@@ -226,6 +295,9 @@ private:
     Frequency frequency_ = Frequency::UNKNOWN;
     std::vector<size_t> selectedFeatures_;
     std::vector<size_t> selectedTargetIndices_;
+    int lagValues_ = 0;
+    int seasonality_ = 0;
+    std::map<std::string, int> bestLagValues_; // Stores best lag for each feature
     
     // Helper methods
     bool parseNumericData();
