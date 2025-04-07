@@ -630,7 +630,7 @@ void GUI::renderVariableSelection() {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextWrapped("Number of previous time periods to use as features. For example, if set to 3, the values from t-1, t-2, and t-3 will be included as features for predicting the value at time t.");
+        ImGui::TextWrapped("Number of previous time periods to use as features. The system will automatically determine the optimal lag (from 1 to this maximum) for each feature based on correlation with the target variable. For example, if set to 4, the system will check lags 1-4 and select the best one for each feature.");
         ImGui::EndTooltip();
     }
     
@@ -643,7 +643,7 @@ void GUI::renderVariableSelection() {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextWrapped("Number of seasonal periods to use. For example, if set to 4 for quarterly data, the value from the same quarter in previous years will be included as features. The system will automatically find the best seasonal pattern within this maximum range.");
+        ImGui::TextWrapped("Maximum seasonality period to consider. The system will analyze the target variable and automatically find the optimal seasonality pattern (from 1 to this maximum) based on autocorrelation. For example, with monthly data, setting to 12 will allow the system to detect yearly patterns.");
         ImGui::EndTooltip();
     }
     
@@ -1128,53 +1128,115 @@ void GUI::renderHyperparameters() {
                 
                 // Add seasonal lag features if specified
                 if (seasonality_ > 0) {
-                    // Try to find and use the best seasonal lags if the auto-detect option is enabled
-                    bool useAutoDetect = true; // Set to true for auto-detection, or add a GUI option
+                    // Find and add variable-specific seasonal lags - always use auto-detection now
+                    std::map<std::string, int> bestSeasonalLags;
                     
-                    if (useAutoDetect) {
-                        // Find and add variable-specific seasonal lags
-                        std::map<std::string, int> bestSeasonalLags;
-                        if (dataHandler_.addVariableSeasonalLags(seasonality_, bestSeasonalLags)) {
-                            LOG_INFO("Added seasonal lag features with auto-detected periods");
+                    // Only process seasonality for the target variable
+                    if (!selectedTargetIndices_.empty()) {
+                        // Get the target name
+                        std::string targetName = "";
+                        size_t targetIdx = selectedTargetIndices_[0];
+                        if (targetIdx < dataHandler_.getColumnNames().size()) {
+                            targetName = dataHandler_.getColumnNames()[targetIdx];
+                        }
+                        
+                        if (!targetName.empty()) {
+                            // Find the best seasonality for the target
+                            std::map<std::string, int> bestTargetSeasonality;
                             
-                            // Get updated feature set with seasonal lag features
-                            X = dataHandler_.getSelectedFeatures(selectedFeatures_);
-                            
-                            // Update target vector since rows were removed
-                            if (!selectedTargetIndices_.empty()) {
-                                y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
-                            }
-                            dataModified = true;
-                            
-                            // Log the detected seasonal values
-                            LOG_INFO("Detected optimal seasonal periods:");
-                            for (const auto& [target, season] : bestSeasonalLags) {
-                                std::stringstream ss;
-                                ss << "Target: " << target << ", Optimal seasonality: " << season;
-                                LOG_INFO(ss.str());
+                            // Manually determine best seasonality based on autocorrelation
+                            if (!targetName.empty()) {
+                                // Create a temporary map for just the target variable
+                                bestTargetSeasonality.clear();
                                 
-                                // Also log the exact feature name that will be created
-                                ss.str("");
-                                ss << "Expected seasonal feature name: " << target << "_seasonal" << season;
-                                LOG_INFO(ss.str());
-                            }
-                        } else {
-                            LOG_WARNING("Unable to determine optimal seasonal values, falling back to standard method");
-                            
-                            // Fall back to standard method if the advanced one fails
-                            if (dataHandler_.addSeasonalLags(seasonality_)) {
-                                // Get updated feature set with seasonal lag features
-                                X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                                // Get the target column data as a vector
+                                Eigen::VectorXd targetData = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
                                 
-                                // Update target vector since rows were removed
-                                if (!selectedTargetIndices_.empty()) {
-                                    y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                                // Calculate autocorrelation for different lags
+                                double bestCorr = 0.0;
+                                int bestSeason = 0;
+                                
+                                // Need at least 2 * seasonality_ data points
+                                if (targetData.size() > 2 * seasonality_) {
+                                    for (int s = 1; s <= seasonality_; ++s) {
+                                        // Valid rows for comparison (from s to end - s)
+                                        int validRows = targetData.size() - s;
+                                        
+                                        if (validRows <= 0) continue;
+                                        
+                                        // Calculate correlation between original and seasonal lag
+                                        Eigen::VectorXd originalSegment = targetData.tail(validRows);
+                                        Eigen::VectorXd laggedSegment = targetData.head(validRows);
+                                        
+                                        double meanOrig = originalSegment.mean();
+                                        double meanLag = laggedSegment.mean();
+                                        
+                                        double normOrig = (originalSegment.array() - meanOrig).matrix().norm();
+                                        double normLag = (laggedSegment.array() - meanLag).matrix().norm();
+                                        
+                                        if (normOrig < 1e-10 || normLag < 1e-10) {
+                                            continue;  // Skip if standard deviation is too small
+                                        }
+                                        
+                                        double corr = ((originalSegment.array() - meanOrig) * 
+                                                      (laggedSegment.array() - meanLag)).sum() / 
+                                                      (normOrig * normLag);
+                                        double absCorr = std::abs(corr);
+                                        
+                                        // Consider only positive correlations for seasonality
+                                        if (corr > bestCorr) {
+                                            bestCorr = corr;
+                                            bestSeason = s;
+                                        }
+                                    }
+                                    
+                                    // Only add significant seasonality
+                                    if (bestSeason > 0 && bestCorr > 0.3) {  // Higher threshold for seasonality
+                                        bestTargetSeasonality[targetName] = bestSeason;
+                                        
+                                        std::stringstream ss;
+                                        ss << "Detected optimal seasonality for target " << targetName 
+                                           << ": " << bestSeason << " (correlation: " << bestCorr << ")";
+                                        LOG_INFO(ss.str());
+                                    }
                                 }
-                                dataModified = true;
+                            }
+                            
+                            // If we found a good seasonality, add it to the dataset
+                            if (!bestTargetSeasonality.empty()) {
+                                if (dataHandler_.addVariableSeasonalLags(seasonality_, bestTargetSeasonality)) {
+                                    LOG_INFO("Added seasonal lag features with auto-detected periods");
+                                    
+                                    // Get updated feature set with seasonal lag features
+                                    X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                                    
+                                    // Update target vector since rows were removed
+                                    if (!selectedTargetIndices_.empty()) {
+                                        y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                                    }
+                                    dataModified = true;
+                                    
+                                    // Use the detected seasonality values
+                                    bestSeasonalLags = bestTargetSeasonality;
+                                    
+                                    // Log the detected seasonal values
+                                    LOG_INFO("Using detected optimal seasonal periods:");
+                                    for (const auto& [target, season] : bestSeasonalLags) {
+                                        std::stringstream ss;
+                                        ss << "Target: " << target << ", Optimal seasonality: " << season;
+                                        LOG_INFO(ss.str());
+                                    }
+                                }
+                            } else {
+                                LOG_INFO("No significant seasonality detected for the target");
                             }
                         }
-                    } else {
-                        // Use the standard method with a fixed seasonality value
+                    }
+                    
+                    // If no optimal seasonality was found or applied, fall back to standard method
+                    if (bestSeasonalLags.empty()) {
+                        LOG_WARNING("Using standard seasonality method");
+                        
                         if (dataHandler_.addSeasonalLags(seasonality_)) {
                             // Get updated feature set with seasonal lag features
                             X = dataHandler_.getSelectedFeatures(selectedFeatures_);
@@ -1637,6 +1699,10 @@ void GUI::renderHyperparameters() {
                 // Add simple time series information if applicable
                 if (lagValues_ > 0 || seasonality_ > 0) {
                     ImGui::Spacing();
+                    
+                    ImGui::TextWrapped("Time Series Features:");
+                    ImGui::Indent(20.0f);
+                    
                     if (lagValues_ > 0) {
                         ImGui::Text("Maximum lag period: %d", lagValues_);
                         
@@ -1644,30 +1710,57 @@ void GUI::renderHyperparameters() {
                         std::map<std::string, int> bestLags = dataHandler_.getBestLagValues();
                         if (!bestLags.empty()) {
                             ImGui::Text("Optimal lags detected: %zu", bestLags.size());
+                            
+                            // Display explanation of what was done
+                            ImGui::TextWrapped("The system analyzed each feature and determined the optimal lag value (between 1 and %d) based on correlation with the target variable.", lagValues_);
+                            
+                            // Display the first few best lags
+                            ImGui::Indent(20.0f);
+                            int count = 0;
+                            for (const auto& [name, period] : bestLags) {
+                                if (count < 3) { // Limit to first 3 to avoid cluttering the UI
+                                    ImGui::Text("%s: Lag %d", name.c_str(), period);
+                                    count++;
+                                } else if (count == 3) {
+                                    ImGui::Text("... and %zu more", bestLags.size() - 3);
+                                    break;
+                                }
+                            }
+                            ImGui::Unindent(20.0f);
+                        } else {
+                            ImGui::TextWrapped("No optimal lags were detected. Standard lag features were used instead.");
                         }
                     }
                     
                     if (seasonality_ > 0) {
+                        ImGui::Spacing();
                         ImGui::Text("Maximum seasonality period: %d", seasonality_);
                         
                         // Show optimal seasonal lags if available
                         std::map<std::string, int> bestSeasonalLags = dataHandler_.getBestSeasonalLagValues();
                         if (!bestSeasonalLags.empty()) {
                             ImGui::Text("Optimal seasonal patterns detected: %zu", bestSeasonalLags.size());
+                            ImGui::TextWrapped("The system analyzed the target variable and identified the optimal seasonality period (between 1 and %d) based on autocorrelation analysis.", seasonality_);
                             
-                            // Display the first few best seasonal lags
+                            // Display the detected seasonality patterns
+                            ImGui::Indent(20.0f);
                             int count = 0;
                             for (const auto& [name, period] : bestSeasonalLags) {
                                 if (count < 3) { // Limit to first 3 to avoid cluttering the UI
-                                    ImGui::Text("  %s: %d periods", name.c_str(), period);
+                                    ImGui::Text("%s: Period %d", name.c_str(), period);
                                     count++;
                                 } else if (count == 3) {
-                                    ImGui::Text("  ... and %zu more", bestSeasonalLags.size() - 3);
+                                    ImGui::Text("... and %zu more", bestSeasonalLags.size() - 3);
                                     break;
                                 }
                             }
+                            ImGui::Unindent(20.0f);
+                        } else {
+                            ImGui::TextWrapped("No significant seasonal patterns were detected. Standard seasonal features were used instead.");
                         }
                     }
+                    
+                    ImGui::Unindent(20.0f);
                     ImGui::Separator();
                 }
                 
@@ -1737,33 +1830,40 @@ void GUI::renderHyperparameters() {
                                 std::string lagStr = featureName.substr(lagPos + 4);
                                 try {
                                     lagValue = std::stoi(lagStr);
-                                    ImGui::Text("Lag %d", lagValue);
                                 } catch (...) {
                                     // If no lag value in name, try to get from bestLagValues
                                     auto it = bestLagValues.find(baseFeatureName);
                                     if (it != bestLagValues.end()) {
-                                        ImGui::Text("Lag %d", it->second);
-                                    } else {
-                                        ImGui::Text("Lag");
+                                        lagValue = it->second;
                                     }
                                 }
                             } else {
                                 // If no lag suffix, try to get from bestLagValues
                                 auto it = bestLagValues.find(baseFeatureName);
                                 if (it != bestLagValues.end()) {
-                                    ImGui::Text("Lag %d", it->second);
-                                } else {
-                                    ImGui::Text("Lag");
+                                    lagValue = it->second;
                                 }
+                            }
+                            
+                            // Check if this is an optimal lag value
+                            bool isOptimalLag = false;
+                            for (const auto& [feature, optLag] : bestLagValues) {
+                                if (baseFeatureName == feature && lagValue == optLag) {
+                                    isOptimalLag = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (isOptimalLag) {
+                                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal Lag %d", lagValue);
+                            } else {
+                                ImGui::Text("Lag %d", lagValue);
                             }
                         }
                         // 2. Check if it's a seasonal feature
                         else if (isSeasonalFeature) {
-                            // First check if this is from an auto-detected best seasonal lag
-                            bool isBestSeasonal = false;
-                            int seasonValue = 0;
-                            
                             // Extract seasonal value from feature name
+                            int seasonValue = 0;
                             if (seasonalPos != std::string::npos && seasonalPos + 9 < featureName.size()) {
                                 std::string seasonalStr = featureName.substr(seasonalPos + 9);
                                 try {
@@ -1776,33 +1876,38 @@ void GUI::renderHyperparameters() {
                                 seasonValue = seasonality_;
                             }
                             
-                            // Extract original feature name (remove _seasonal suffix)
-                            std::string baseName = featureName;
-                            if (seasonalPos != std::string::npos) {
-                                baseName = featureName.substr(0, seasonalPos);
-                            }
-                            
-                            // Check against best seasonal lag map
+                            // Check if this is an optimal seasonal lag value
+                            bool isOptimalSeasonal = false;
                             for (const auto& [target, period] : bestSeasonalLagValues) {
-                                if (baseName == target && seasonValue == period) {
-                                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Optimal Seasonal %d", period);
-                                    isBestSeasonal = true;
+                                if (baseFeatureName == target && seasonValue == period) {
+                                    isOptimalSeasonal = true;
                                     break;
                                 }
                             }
                             
-                            // If not identified as a best seasonal lag, display regular info
-                            if (!isBestSeasonal) {
+                            if (isOptimalSeasonal) {
+                                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Optimal Seasonal %d", seasonValue);
+                            } else {
                                 ImGui::Text("Seasonal %d", seasonValue);
                             }
                         }
-                        // 3. Check if it's in bestLagValues (might be a lag feature without _lag suffix)
-                        else if (bestLagValues.find(featureName) != bestLagValues.end()) {
-                            ImGui::Text("Lag %d", bestLagValues[featureName]);
-                        }
-                        // 4. Default to Standard
+                        // 3. Check if it's a standard feature (no specific lag/seasonal identification)
                         else {
-                            ImGui::Text("Standard");
+                            // Check if it might be in bestLagValues map (without explicit _lag suffix)
+                            auto lagIt = bestLagValues.find(featureName);
+                            if (lagIt != bestLagValues.end()) {
+                                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal Lag %d", lagIt->second);
+                            }
+                            // Check if it might be in bestSeasonalLagValues (without explicit _seasonal suffix)
+                            else {
+                                auto seasonalIt = bestSeasonalLagValues.find(featureName);
+                                if (seasonalIt != bestSeasonalLagValues.end()) {
+                                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Optimal Seasonal %d", seasonalIt->second);
+                                }
+                                else {
+                                    ImGui::Text("Standard");
+                                }
+                            }
                         }
                         
                         // Coefficient value
