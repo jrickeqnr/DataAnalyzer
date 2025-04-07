@@ -15,16 +15,16 @@ ElasticNet::ElasticNet(double alpha, double lambda, int max_iter, double tol)
     std::stringstream ss;
     ss << "Initialized ElasticNet with alpha=" << alpha << ", lambda=" << lambda 
        << ", max_iter=" << max_iter << ", tol=" << tol;
-    LOG_INFO(ss.str());
+    LOG_CLASS_INFO("ElasticNet",ss.str());
 }
 
 bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     if (X.rows() != y.rows() || X.cols() == 0) {
-        LOG_ERROR("Invalid input dimensions for training");
+        LOG_CLASS_ERROR("ElasticNet","Invalid input dimensions for training");
         return false;
     }
     
-    LOG_INFO("Starting ElasticNet training...");
+    LOG_CLASS_INFO("ElasticNet","Starting ElasticNet training...");
     
     // Clear previous model state
     coefficients_.resize(0);
@@ -45,6 +45,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     // Initialize training progress
     stats_["Training Progress"] = 0.0;
     
+    
     // Standardize features using population statistics (divide by n)
     Eigen::MatrixXd X_std = X;
     Eigen::VectorXd X_mean = X.colwise().mean();
@@ -53,7 +54,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     for (int i = 0; i < X.cols(); ++i) {
         if (X_std_dev(i) < 1e-10) {  // Handle near-zero standard deviation
             X_std_dev(i) = 1.0;
-            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
+            LOG_CLASS_WARNING("ElasticNet","Feature " + std::to_string(i) + " has near-zero standard deviation");
         }
         X_std.col(i) = (X.col(i).array() - X_mean(i)) / X_std_dev(i);
     }
@@ -63,7 +64,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     double y_std = std::sqrt((y.array() - y_mean).square().sum() / y.rows());
     if (y_std < 1e-10) {
         y_std = 1.0;
-        LOG_WARNING("Target variable has near-zero standard deviation");
+        LOG_CLASS_WARNING("ElasticNet","Target variable has near-zero standard deviation");
     }
     Eigen::VectorXd y_scaled = (y.array() - y_mean) / y_std;
     
@@ -114,7 +115,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
         if (std::abs(prev_loss - loss) < tol_) {
             std::stringstream ss;
             ss << "Converged after " << iter + 1 << " iterations with loss=" << loss;
-            LOG_INFO(ss.str());
+            LOG_CLASS_INFO("ElasticNet",ss.str());
             break;
         }
         
@@ -123,7 +124,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
         if (iter % 100 == 0) {
             std::stringstream ss;
             ss << "Iteration " << iter << ", loss=" << loss;
-            LOG_DEBUG(ss.str());
+            LOG_CLASS_DEBUG("ElasticNet",ss.str());
         }
     }
     
@@ -143,7 +144,7 @@ bool ElasticNet::train(const Eigen::MatrixXd& X, const Eigen::VectorXd& y) {
     
     std::stringstream ss;
     ss << "Training completed. RMSE=" << rmse_ << ", R2=" << r_squared_;
-    LOG_INFO(ss.str());
+    LOG_CLASS_INFO("ElasticNet",ss.str());
     
     return true;
 }
@@ -184,11 +185,11 @@ std::pair<double, double> ElasticNet::gridSearch(
     int k) {
     
     if (X.rows() != y.rows() || alpha_values.empty() || lambda_values.empty() || k <= 1) {
-        LOG_ERROR("Invalid parameters for grid search");
+        LOG_CLASS_ERROR("ElasticNet","Invalid parameters for grid search");
         return {alpha_, lambda_};
     }
     
-    LOG_INFO("Starting grid search for hyperparameters...");
+    LOG_CLASS_INFO("ElasticNet","Starting grid search for hyperparameters...");
     
     // Create a temporary map for grid search statistics to avoid 
     // polluting the main stats_ object
@@ -202,7 +203,7 @@ std::pair<double, double> ElasticNet::gridSearch(
     for (int i = 0; i < X.cols(); ++i) {
         if (std(i) < 1e-10) {  // Handle near-zero standard deviation
             std(i) = 1.0;
-            LOG_WARNING("Feature " + std::to_string(i) + " has near-zero standard deviation");
+            LOG_CLASS_WARNING("ElasticNet","Feature " + std::to_string(i) + " has near-zero standard deviation");
         }
         X_std.col(i) = (X.col(i).array() - mean(i)) / std(i);
     }
@@ -212,7 +213,7 @@ std::pair<double, double> ElasticNet::gridSearch(
     double y_std = std::sqrt((y.array() - y_mean).square().sum() / y.rows());
     if (y_std < 1e-10) {
         y_std = 1.0;
-        LOG_WARNING("Target variable has near-zero standard deviation");
+        LOG_CLASS_WARNING("ElasticNet","Target variable has near-zero standard deviation");
     }
     Eigen::VectorXd y_std_vec = (y.array() - y_mean) / y_std;
     
@@ -263,7 +264,7 @@ std::pair<double, double> ElasticNet::gridSearch(
             std::stringstream ss;
             ss << "Testing alpha=" << alpha << ", lambda=" << lambda 
                << " (" << current_combination << "/" << total_combinations << ")";
-            LOG_DEBUG(ss.str());
+            LOG_CLASS_DEBUG("ElasticNet",ss.str());
             
             // K-fold cross-validation
             for (int fold = 0; fold < k && !early_stop; ++fold) {
@@ -356,7 +357,7 @@ std::pair<double, double> ElasticNet::gridSearch(
                     ss << "New best parameters found - alpha=" << alpha 
                        << ", lambda=" << lambda << ", RMSE=" << avg_rmse 
                        << ", R2=" << avg_r2;
-                    LOG_INFO(ss.str());
+                    LOG_CLASS_INFO("ElasticNet",ss.str());
                     
                     // Store best parameters in grid search stats (not in the model's stats)
                     grid_search_stats["Best RMSE"] = best_rmse;
@@ -382,7 +383,7 @@ std::pair<double, double> ElasticNet::gridSearch(
     ss << "Grid search completed. Best parameters - alpha=" << best_alpha 
        << ", lambda=" << best_lambda << ", RMSE=" << best_rmse 
        << ", R2=" << best_r2;
-    LOG_INFO(ss.str());
+    LOG_CLASS_INFO("ElasticNet",ss.str());
     
     return {best_alpha, best_lambda};
 }
@@ -488,7 +489,7 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
     std::stringstream ss;
     ss << "Model statistics - RMSE=" << rmse_ << ", R2=" << r_squared_ 
        << ", Adjusted R2=" << adj_r_squared << ", AIC=" << aic << ", BIC=" << bic;
-    LOG_INFO(ss.str());
+    LOG_CLASS_INFO("ElasticNet",ss.str());
     
     // Log coefficient statistics
     for (int i = 0; i < p; ++i) {
@@ -496,7 +497,7 @@ void ElasticNet::computeStats(const Eigen::MatrixXd& X, const Eigen::VectorXd& y
             std::stringstream coef_ss;
             coef_ss << "Coefficient " << i << " = " << coefficients_(i) 
                    << " (t-value=" << t_values(i + 1) << ")";
-            LOG_DEBUG(coef_ss.str());
+            LOG_CLASS_DEBUG("ElasticNet",coef_ss.str());
         }
     }
 }
