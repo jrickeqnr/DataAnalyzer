@@ -7,9 +7,17 @@
 #include <filesystem>
 #include <thread>
 #include <mutex>
-
-// Model includes
+#include <sstream>
+#include <memory>
+#include <string>
+#include <vector>
+#include <functional>
+#include <Eigen/Dense>
+#include <GLFW/glfw3.h>
+#include "../include/logger.h"
+#include "../include/data_handler.h"
 #include "../include/model.h"
+#include "../include/plotting.h"
 
 namespace fs = std::filesystem;
 
@@ -561,8 +569,8 @@ void GUI::renderVariableSelection() {
 
     ImGui::NextColumn();
 
-    // Target Variable Selection (Right Column)
-    ImGui::BeginChild("TargetVariableFrame", ImVec2(columnWidth, ImGui::GetWindowHeight() * 0.6f), true);
+    // Target Variable Selection (Right Column) - REDUCED HEIGHT
+    ImGui::BeginChild("TargetVariableFrame", ImVec2(columnWidth, ImGui::GetWindowHeight() * 0.4f), true);
     ImGui::Text("Target Variables");
     ImGui::Separator();
     ImGui::TextWrapped("Select variable(s) to predict. For best results, select only one target variable.");
@@ -606,6 +614,39 @@ void GUI::renderVariableSelection() {
         ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.0f, 1.0f), "Warning: No target variable selected.");
         ImGui::TextWrapped("You must select at least one target variable to proceed.");
     }
+    ImGui::EndChild();
+    
+    // Time Series Options (Right Column - Below Target Selection)
+    ImGui::BeginChild("TimeSeriesOptionsFrame", ImVec2(columnWidth, ImGui::GetWindowHeight() * 0.18f), true);
+    ImGui::Text("Time Series Options");
+    ImGui::Separator();
+    
+    // Lag Values slider
+    ImGui::TextWrapped("Lag Values: Apply previous time periods as features");
+    ImGui::SetNextItemWidth(columnWidth - 20.0f);
+    if (ImGui::SliderInt("##LagValues", &lagValues_, 0, 12, "%d lags")) {
+        // Update the data handler with the new lag values
+        dataHandler_.setLagValues(lagValues_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextWrapped("Number of previous time periods to use as features. For example, if set to 3, the values from t-1, t-2, and t-3 will be included as features for predicting the value at time t.");
+        ImGui::EndTooltip();
+    }
+    
+    // Seasonality slider
+    ImGui::TextWrapped("Seasonality: Apply seasonal lags to target variables");
+    ImGui::SetNextItemWidth(columnWidth - 20.0f);
+    if (ImGui::SliderInt("##Seasonality", &seasonality_, 0, 12, "%d periods")) {
+        // Update the data handler with the new seasonality value
+        dataHandler_.setSeasonality(seasonality_);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::TextWrapped("Number of seasonal periods to use. For example, if set to 4 for quarterly data, the value from the same quarter in previous years will be included as features. The system will automatically find the best seasonal pattern within this maximum range.");
+        ImGui::EndTooltip();
+    }
+    
     ImGui::EndChild();
 
     ImGui::Columns(1);
@@ -1042,13 +1083,271 @@ void GUI::renderHyperparameters() {
                     y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
                 }
                 
-                // Reset training results
+                // Apply time series features if configured
+                bool dataModified = false;
+                std::map<std::string, int> bestLagValues;
+                
+                // Add lag features with variable-specific lags if enabled
+                if (lagValues_ > 0) {
+                    if (dataHandler_.addVariableLagFeatures(lagValues_, bestLagValues)) {
+                        // Get updated feature set with optimal lag features
+                        X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                        
+                        // Update target vector since rows were removed
+                        if (!selectedTargetIndices_.empty()) {
+                            y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                        }
+                        dataModified = true;
+                        
+                        // Store the discovered best lag values
+                        std::stringstream ss;
+                        ss << "Optimal lag values found for " << bestLagValues.size() << " features";
+                        LOG_INFO(ss.str());
+                        
+                        for (const auto& [feature, lag] : bestLagValues) {
+                            ss.str("");
+                            ss << "Feature: " << feature << ", Optimal lag: " << lag;
+                            LOG_INFO(ss.str());
+                        }
+                    } else {
+                        LOG_WARNING("Unable to determine optimal lag values, falling back to standard method");
+                        
+                        // Fall back to standard method if the advanced one fails
+                        if (dataHandler_.addLagFeatures(lagValues_)) {
+                            // Get updated feature set with lag features
+                            X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                            
+                            // Update target vector since rows were removed
+                            if (!selectedTargetIndices_.empty()) {
+                                y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                            }
+                            dataModified = true;
+                        }
+                    }
+                }
+                
+                // Add seasonal lag features if specified
+                if (seasonality_ > 0) {
+                    // Try to find and use the best seasonal lags if the auto-detect option is enabled
+                    bool useAutoDetect = true; // Set to true for auto-detection, or add a GUI option
+                    
+                    if (useAutoDetect) {
+                        // Find and add variable-specific seasonal lags
+                        std::map<std::string, int> bestSeasonalLags;
+                        if (dataHandler_.addVariableSeasonalLags(seasonality_, bestSeasonalLags)) {
+                            LOG_INFO("Added seasonal lag features with auto-detected periods");
+                            
+                            // Get updated feature set with seasonal lag features
+                            X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                            
+                            // Update target vector since rows were removed
+                            if (!selectedTargetIndices_.empty()) {
+                                y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                            }
+                            dataModified = true;
+                            
+                            // Log the detected seasonal values
+                            LOG_INFO("Detected optimal seasonal periods:");
+                            for (const auto& [target, season] : bestSeasonalLags) {
+                                std::stringstream ss;
+                                ss << "Target: " << target << ", Optimal seasonality: " << season;
+                                LOG_INFO(ss.str());
+                                
+                                // Also log the exact feature name that will be created
+                                ss.str("");
+                                ss << "Expected seasonal feature name: " << target << "_seasonal" << season;
+                                LOG_INFO(ss.str());
+                            }
+                        } else {
+                            LOG_WARNING("Unable to determine optimal seasonal values, falling back to standard method");
+                            
+                            // Fall back to standard method if the advanced one fails
+                            if (dataHandler_.addSeasonalLags(seasonality_)) {
+                                // Get updated feature set with seasonal lag features
+                                X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                                
+                                // Update target vector since rows were removed
+                                if (!selectedTargetIndices_.empty()) {
+                                    y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                                }
+                                dataModified = true;
+                            }
+                        }
+                    } else {
+                        // Use the standard method with a fixed seasonality value
+                        if (dataHandler_.addSeasonalLags(seasonality_)) {
+                            // Get updated feature set with seasonal lag features
+                            X = dataHandler_.getSelectedFeatures(selectedFeatures_);
+                            
+                            // Update target vector since rows were removed
+                            if (!selectedTargetIndices_.empty()) {
+                                y = dataHandler_.getSelectedTarget(selectedTargetIndices_[0]);
+                            }
+                            dataModified = true;
+                        }
+                    }
+                }
+                
+                // Update feature names after all time series transformations are complete
+                // and ensure the number matches the model input matrix
                 {
                     std::lock_guard<std::mutex> lock(trainingMutex_);
+                    
+                    // Get feature names and log them
+                    featureNames_ = dataHandler_.getFeatureNames();
+                    
+                    if (dataModified) {
+                        LOG_INFO("Updated feature names after time series transformations");
+                        std::stringstream ss;
+                        ss << "Feature count before adjustment: " << featureNames_.size();
+                        LOG_INFO(ss.str());
+                    }
+                    
+                    // Check for date columns and remove them from feature list
+                    std::vector<size_t> dateColumnIndices = dataHandler_.getDateColumnIndices();
+                    if (!dateColumnIndices.empty()) {
+                        LOG_INFO("Removing date columns from model features");
+                        std::vector<size_t> dateIndices;
+                        
+                        // Find date columns in our feature names
+                        for (size_t dateColIdx : dateColumnIndices) {
+                            std::string dateColName = dataHandler_.getColumnNames()[dateColIdx];
+                            for (size_t i = 0; i < featureNames_.size(); ++i) {
+                                if (featureNames_[i] == dateColName) {
+                                    dateIndices.push_back(i);
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Remove date columns from feature names (in reverse order to preserve indices)
+                        std::sort(dateIndices.begin(), dateIndices.end(), std::greater<size_t>());
+                        for (size_t idx : dateIndices) {
+                            if (idx < featureNames_.size()) {
+                                LOG_INFO("Removing date column from features: " + featureNames_[idx]);
+                                featureNames_.erase(featureNames_.begin() + idx);
+                                
+                                // Also remove from X matrix if needed
+                                if (idx < static_cast<size_t>(X.cols())) {
+                                    // Create new matrix without the date column
+                                    Eigen::MatrixXd newX(X.rows(), X.cols() - 1);
+                                    
+                                    // Copy columns before the date column
+                                    if (idx > 0) {
+                                        newX.leftCols(idx) = X.leftCols(idx);
+                                    }
+                                    
+                                    // Copy columns after the date column
+                                    if (idx < static_cast<size_t>(X.cols()) - 1) {
+                                        newX.rightCols(X.cols() - idx - 1) = X.rightCols(X.cols() - idx - 1);
+                                    }
+                                    
+                                    X = newX;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Log the feature names after date column removal
+                    if (dataModified) {
+                        std::stringstream ss;
+                        ss << "Feature count after date removal: " << featureNames_.size();
+                        LOG_INFO(ss.str());
+                    }
+                    
+                    // Ensure seasonal features are included - add explicit check for the existence of seasonal features
+                    std::map<std::string, int> bestSeasonalLags = dataHandler_.getBestSeasonalLagValues();
+                    if (!bestSeasonalLags.empty()) {
+                        LOG_INFO("Checking for seasonal features in feature names:");
+                        for (const auto& [target, period] : bestSeasonalLags) {
+                            std::string expectedPattern = target + "_seasonal" + std::to_string(period);
+                            
+                            // Check if this feature exists in the feature names
+                            bool found = false;
+                            for (const auto& featureName : featureNames_) {
+                                if (featureName == expectedPattern) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (found) {
+                                LOG_INFO("Found seasonal feature: " + expectedPattern);
+                            } else {
+                                LOG_WARNING("Missing seasonal feature: " + expectedPattern);
+                            }
+                        }
+                    }
+                    
+                    // Adjust feature names list to match X dimensions
+                    if (featureNames_.size() > static_cast<size_t>(X.cols())) {
+                        // Special attention to preserve seasonal features when trimming
+                        std::vector<std::string> newFeatureNames;
+                        newFeatureNames.reserve(X.cols());
+                        
+                        // First, identify and prioritize important features (like seasonal features)
+                        std::vector<std::string> priorityFeatures;
+                        for (const auto& [target, period] : bestSeasonalLags) {
+                            std::string expectedPattern = target + "_seasonal" + std::to_string(period);
+                            priorityFeatures.push_back(expectedPattern);
+                        }
+                        
+                        // Copy important features first
+                        for (const auto& priorityFeature : priorityFeatures) {
+                            auto it = std::find(featureNames_.begin(), featureNames_.end(), priorityFeature);
+                            if (it != featureNames_.end()) {
+                                newFeatureNames.push_back(priorityFeature);
+                            }
+                        }
+                        
+                        // Then add other features until we reach X.cols()
+                        for (const auto& featureName : featureNames_) {
+                            if (newFeatureNames.size() >= static_cast<size_t>(X.cols())) {
+                                break;
+                            }
+                            
+                            // Skip if already added as priority feature
+                            if (std::find(newFeatureNames.begin(), newFeatureNames.end(), featureName) != newFeatureNames.end()) {
+                                continue;
+                            }
+                            
+                            newFeatureNames.push_back(featureName);
+                        }
+                        
+                        LOG_WARNING("Adjusting feature names from " + std::to_string(featureNames_.size()) + 
+                                  " to match actual input columns (" + std::to_string(X.cols()) + ")");
+                        featureNames_ = newFeatureNames;
+                    }
+                    // Or pad with generic names if needed
+                    else if (featureNames_.size() < static_cast<size_t>(X.cols())) {
+                        LOG_WARNING("Adding generic feature names to match input columns (" + 
+                                  std::to_string(X.cols()) + ")");
+                        size_t originalSize = featureNames_.size();
+                        featureNames_.resize(X.cols());
+                        for (size_t i = originalSize; i < featureNames_.size(); i++) {
+                            featureNames_[i] = "Feature_" + std::to_string(i);
+                        }
+                    }
+                    
+                    // Log final feature list
+                    if (dataModified) {
+                        std::stringstream ss;
+                        ss << "Final feature count: " << featureNames_.size();
+                        LOG_INFO(ss.str());
+                        
+                        LOG_INFO("Final feature list:");
+                        for (size_t i = 0; i < std::min(featureNames_.size(), size_t(10)); ++i) {
+                            LOG_INFO(std::to_string(i) + ": " + featureNames_[i]);
+                        }
+                        if (featureNames_.size() > 10) {
+                            LOG_INFO("... and " + std::to_string(featureNames_.size() - 10) + " more");
+                        }
+                    }
+                    
+                    // Reset training results
                     modelStats_.clear();
                     modelHyperparams_.clear();
                     modelCoefficients_.resize(0);
-                    featureNames_ = dataHandler_.getFeatureNames();
                     modelIntercept_ = 0.0;
                 }
                 
@@ -1092,9 +1391,9 @@ void GUI::renderHyperparameters() {
                     case 2: // XGBoost
                         if (autoHyperparameters_) {
                             // Define expanded grid search values for XGBoost
-                            std::vector<int> n_estimators_values = {50, 100, 200};  // Reduced from 5 to 3 values
-                            std::vector<double> learning_rate_values = {0.01, 0.1, 0.3};  // Adjusted range
-                            std::vector<int> max_depth_values = {3, 4, 5};  // Reduced and centered range
+                            std::vector<int> n_estimators_values = {100, 200, 300};  // Reduced from 5 to 3 values
+                            std::vector<double> learning_rate_values = {0.01, 0.05, 0.075, 0.1, 0.3};  // Adjusted range
+                            std::vector<int> max_depth_values = {3, 4, 5, 6, 7};  // Reduced and centered range
                             std::vector<double> subsample_values = {0.8, 1.0};  // Most common values
                             
                             // Create persistent model for grid search
@@ -1210,6 +1509,12 @@ void GUI::renderHyperparameters() {
                     modelStats_ = model_->getStats();
                     modelCoefficients_ = model_->getCoefficients();
                     modelHyperparams_ = model_->getHyperparameters();
+                    
+                    // Ensure coefficient vector size matches feature names
+                    if (modelCoefficients_.size() < featureNames_.size()) {
+                        LOG_WARNING("Coefficient vector size (" + std::to_string(modelCoefficients_.size()) + 
+                                  ") smaller than feature names (" + std::to_string(featureNames_.size()) + ")");
+                    }
                     
                     // Get intercept from stats if available
                     if (modelStats_.find("Intercept") != modelStats_.end()) {
@@ -1328,44 +1633,198 @@ void GUI::renderHyperparameters() {
                     ImGui::SameLine();
                     ImGui::Text("(SE: %.4f)", modelStats_["Intercept SE"]);
                 }
-
+                
+                // Add simple time series information if applicable
+                if (lagValues_ > 0 || seasonality_ > 0) {
+                    ImGui::Spacing();
+                    if (lagValues_ > 0) {
+                        ImGui::Text("Maximum lag period: %d", lagValues_);
+                        
+                        // Show optimal lags if available
+                        std::map<std::string, int> bestLags = dataHandler_.getBestLagValues();
+                        if (!bestLags.empty()) {
+                            ImGui::Text("Optimal lags detected: %zu", bestLags.size());
+                        }
+                    }
+                    
+                    if (seasonality_ > 0) {
+                        ImGui::Text("Maximum seasonality period: %d", seasonality_);
+                        
+                        // Show optimal seasonal lags if available
+                        std::map<std::string, int> bestSeasonalLags = dataHandler_.getBestSeasonalLagValues();
+                        if (!bestSeasonalLags.empty()) {
+                            ImGui::Text("Optimal seasonal patterns detected: %zu", bestSeasonalLags.size());
+                            
+                            // Display the first few best seasonal lags
+                            int count = 0;
+                            for (const auto& [name, period] : bestSeasonalLags) {
+                                if (count < 3) { // Limit to first 3 to avoid cluttering the UI
+                                    ImGui::Text("  %s: %d periods", name.c_str(), period);
+                                    count++;
+                                } else if (count == 3) {
+                                    ImGui::Text("  ... and %zu more", bestSeasonalLags.size() - 3);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    ImGui::Separator();
+                }
+                
+                // Get best lag values for highlighting and reference
+                std::map<std::string, int> bestLagValues = dataHandler_.getBestLagValues();
+                
+                // Get best seasonal lag values for highlighting and reference
+                std::map<std::string, int> bestSeasonalLagValues = dataHandler_.getBestSeasonalLagValues();
+                
                 // Create a table for coefficients and their statistics
-                if (ImGui::BeginTable("CoefficientsTable", 4, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+                if (ImGui::BeginTable("CoefficientsTable", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
                     ImGui::TableSetupColumn("Feature");
+                    ImGui::TableSetupColumn("Type");
                     ImGui::TableSetupColumn("Coefficient");
                     ImGui::TableSetupColumn("Std. Error");
                     ImGui::TableSetupColumn("t-value");
                     ImGui::TableHeadersRow();
 
-                    for (size_t i = 0; i < featureNames_.size(); ++i) {
-                        if (static_cast<Eigen::Index>(i) < modelCoefficients_.size()) {
-                            ImGui::TableNextRow();
-                            
-                            // Feature name
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::Text("%s", featureNames_[i].c_str());
-                            
-                            // Coefficient value
-                            ImGui::TableSetColumnIndex(1);
-                            ImGui::Text("%.4f", modelCoefficients_(i));
-                            
-                            // Standard Error
-                            ImGui::TableSetColumnIndex(2);
-                            std::string se_key = "SE_" + std::to_string(i);
-                            if (modelStats_.find(se_key) != modelStats_.end()) {
-                                ImGui::Text("%.4f", modelStats_[se_key]);
+                    // Instead of using the full featureNames_, we'll use only the coefficients we have
+                    size_t rowCount = static_cast<size_t>(modelCoefficients_.size());
+                    
+                    for (size_t i = 0; i < rowCount; ++i) {
+                        ImGui::TableNextRow();
+                        
+                        // Feature name
+                        ImGui::TableSetColumnIndex(0);
+                        
+                        // Get the feature name safely, using index if it exists, or generating a name otherwise
+                        std::string featureName = (i < featureNames_.size()) ? featureNames_[i] : "Feature_" + std::to_string(i);
+                        
+                        // Extract base feature name (without _lag or _seasonal suffix)
+                        std::string baseFeatureName = featureName;
+                        size_t lagPos = featureName.find("_lag");
+                        size_t seasonalPos = featureName.find("_seasonal");
+                        
+                        if (lagPos != std::string::npos) {
+                            baseFeatureName = featureName.substr(0, lagPos);
+                        } else if (seasonalPos != std::string::npos) {
+                            baseFeatureName = featureName.substr(0, seasonalPos);
+                        }
+                        
+                        // Check if this is a lag or seasonal feature
+                        bool isLagFeature = lagPos != std::string::npos;
+                        bool isSeasonalFeature = seasonalPos != std::string::npos;
+                        
+                        // Apply color highlight for time series features
+                        if (isLagFeature) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.7f, 1.0f, 1.0f)); // Blue for lag
+                        } else if (isSeasonalFeature) {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.5f, 0.0f, 1.0f)); // Orange for seasonal
+                        }
+                        
+                        ImGui::Text("%s", featureName.c_str());
+                        
+                        if (isLagFeature || isSeasonalFeature) {
+                            ImGui::PopStyleColor();
+                        }
+                        
+                        // Feature type with enhanced information
+                        ImGui::TableSetColumnIndex(1);
+                        
+                        // 1. Check if it's a lag feature
+                        if (isLagFeature) {
+                            // Try to extract lag value from feature name
+                            int lagValue = 0;
+                            if (lagPos != std::string::npos && lagPos + 4 < featureName.size()) {
+                                std::string lagStr = featureName.substr(lagPos + 4);
+                                try {
+                                    lagValue = std::stoi(lagStr);
+                                    ImGui::Text("Lag %d", lagValue);
+                                } catch (...) {
+                                    // If no lag value in name, try to get from bestLagValues
+                                    auto it = bestLagValues.find(baseFeatureName);
+                                    if (it != bestLagValues.end()) {
+                                        ImGui::Text("Lag %d", it->second);
+                                    } else {
+                                        ImGui::Text("Lag");
+                                    }
+                                }
                             } else {
-                                ImGui::Text("-");
+                                // If no lag suffix, try to get from bestLagValues
+                                auto it = bestLagValues.find(baseFeatureName);
+                                if (it != bestLagValues.end()) {
+                                    ImGui::Text("Lag %d", it->second);
+                                } else {
+                                    ImGui::Text("Lag");
+                                }
+                            }
+                        }
+                        // 2. Check if it's a seasonal feature
+                        else if (isSeasonalFeature) {
+                            // First check if this is from an auto-detected best seasonal lag
+                            bool isBestSeasonal = false;
+                            int seasonValue = 0;
+                            
+                            // Extract seasonal value from feature name
+                            if (seasonalPos != std::string::npos && seasonalPos + 9 < featureName.size()) {
+                                std::string seasonalStr = featureName.substr(seasonalPos + 9);
+                                try {
+                                    seasonValue = std::stoi(seasonalStr);
+                                } catch (...) {
+                                    // If extraction fails, use the global seasonality value
+                                    seasonValue = seasonality_;
+                                }
+                            } else {
+                                seasonValue = seasonality_;
                             }
                             
-                            // t-value
-                            ImGui::TableSetColumnIndex(3);
-                            std::string t_key = "t_value_" + std::to_string(i);
-                            if (modelStats_.find(t_key) != modelStats_.end()) {
-                                ImGui::Text("%.4f", modelStats_[t_key]);
-                            } else {
-                                ImGui::Text("-");
+                            // Extract original feature name (remove _seasonal suffix)
+                            std::string baseName = featureName;
+                            if (seasonalPos != std::string::npos) {
+                                baseName = featureName.substr(0, seasonalPos);
                             }
+                            
+                            // Check against best seasonal lag map
+                            for (const auto& [target, period] : bestSeasonalLagValues) {
+                                if (baseName == target && seasonValue == period) {
+                                    ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Optimal Seasonal %d", period);
+                                    isBestSeasonal = true;
+                                    break;
+                                }
+                            }
+                            
+                            // If not identified as a best seasonal lag, display regular info
+                            if (!isBestSeasonal) {
+                                ImGui::Text("Seasonal %d", seasonValue);
+                            }
+                        }
+                        // 3. Check if it's in bestLagValues (might be a lag feature without _lag suffix)
+                        else if (bestLagValues.find(featureName) != bestLagValues.end()) {
+                            ImGui::Text("Lag %d", bestLagValues[featureName]);
+                        }
+                        // 4. Default to Standard
+                        else {
+                            ImGui::Text("Standard");
+                        }
+                        
+                        // Coefficient value
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%.4f", modelCoefficients_(i));
+                        
+                        // Standard Error
+                        ImGui::TableSetColumnIndex(3);
+                        std::string se_key = "SE_" + std::to_string(i);
+                        if (modelStats_.find(se_key) != modelStats_.end()) {
+                            ImGui::Text("%.4f", modelStats_[se_key]);
+                        } else {
+                            ImGui::Text("-");
+                        }
+                        
+                        // t-value
+                        ImGui::TableSetColumnIndex(4);
+                        std::string t_key = "t_value_" + std::to_string(i);
+                        if (modelStats_.find(t_key) != modelStats_.end()) {
+                            ImGui::Text("%.4f", modelStats_[t_key]);
+                        } else {
+                            ImGui::Text("-");
                         }
                     }
                     ImGui::EndTable();

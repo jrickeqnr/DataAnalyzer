@@ -197,9 +197,18 @@ public:
      * @param learning_rate Step size shrinkage used to prevent overfitting
      * @param max_depth Maximum depth of a tree
      * @param subsample Subsample ratio of the training instances
+     * @param min_child_weight Minimum sum of instance weight needed in a child node
+     * @param lambda L2 regularization term on weights
+     * @param alpha L1 regularization term on weights
+     * @param gamma Minimum loss reduction required for further partition
+     * @param max_leaves Maximum number of leaf nodes in a tree
+     * @param early_stopping_rounds Stop training if validation error doesn't improve for this many rounds
      */
     XGBoost(int n_estimators = 100, double learning_rate = 0.1,
-            int max_depth = 3, double subsample = 1.0);
+            int max_depth = 3, double subsample = 1.0, 
+            double min_child_weight = 1.0, double lambda = 1.0, 
+            double alpha = 0.0, double gamma = 0.0, 
+            int max_leaves = 0, int early_stopping_rounds = 0);
     
     ~XGBoost() override = default;
 
@@ -218,6 +227,8 @@ public:
      * @param learning_rate_values Vector of learning_rate values to try
      * @param max_depth_values Vector of max_depth values to try
      * @param subsample_values Vector of subsample values to try
+     * @param lambda_values Vector of lambda values to try
+     * @param alpha_values Vector of alpha values to try
      * @param k Number of folds for cross-validation
      * @return std::tuple<int, double, int, double> Best (n_estimators, learning_rate, max_depth, subsample) tuple
      */
@@ -228,6 +239,8 @@ public:
         const std::vector<double>& learning_rate_values,
         const std::vector<int>& max_depth_values,
         const std::vector<double>& subsample_values,
+        const std::vector<double>& lambda_values = {1.0},
+        const std::vector<double>& alpha_values = {0.0},
         int k = 5);
 
     bool hasFeatureImportance() const override { return true; }
@@ -246,8 +259,14 @@ private:
     // Hyperparameters
     int n_estimators_;        // Number of boosting rounds
     double learning_rate_;    // Step size shrinkage
-    int max_depth_;          // Maximum depth of a tree
-    double subsample_;       // Subsample ratio of training instances
+    int max_depth_;           // Maximum depth of a tree
+    double subsample_;        // Subsample ratio of training instances
+    double min_child_weight_; // Minimum sum of instance weight needed in a child
+    double lambda_;          // L2 regularization term
+    double alpha_;           // L1 regularization term
+    double gamma_;           // Minimum loss reduction for partition
+    int max_leaves_;         // Maximum number of leaf nodes
+    int early_stopping_rounds_; // Stop training if validation doesn't improve
     
     // Model state
     std::vector<Tree> trees_;  // Collection of trees
@@ -264,6 +283,8 @@ private:
     void buildRegressionTree(const Eigen::MatrixXd& X, const Eigen::VectorXd& y, 
                            Tree& tree, int depth, int max_depth);
     double computeAverageTreeDepth() const;
+    Eigen::MatrixXd standardizeFeatures(const Eigen::MatrixXd& X) const;
+    double clipPrediction(double prediction, double max_value = 1e6) const;
 };
 
 /**

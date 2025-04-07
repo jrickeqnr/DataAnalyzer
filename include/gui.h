@@ -64,6 +64,8 @@ public:
             hidden_layers_(2),
             neurons_per_layer_(10),
             max_iterations_(1000),
+            lagValues_(0),
+            seasonality_(0),
             autoHyperparameters_(false) {}
     
     GUI(const std::string& title = "DataAnalyzer", int width = 1280, int height = 720);
@@ -139,6 +141,10 @@ private:
     int hidden_layers_ = 2;
     int neurons_per_layer_ = 10;
     int max_iterations_ = 1000;
+    
+    // Time series options
+    int lagValues_ = 0;
+    int seasonality_ = 0;
     
     bool autoHyperparameters_ = false;
     Eigen::VectorXd predictions_;

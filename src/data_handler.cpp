@@ -818,4 +818,595 @@ Frequency DataHandler::computeFrequency() const {
     }
 }
 
+bool DataHandler::addLagFeatures(int lagValues) {
+    if (lagValues <= 0 || numericData_.rows() <= lagValues) {
+        return false;
+    }
+    
+    // Store original dimensions
+    int originalRows = numericData_.rows();
+    int originalCols = numericData_.cols();
+    
+    // Create new matrix with space for lag features
+    // We lose 'lagValues' rows at the beginning because we need previous values
+    int newRows = originalRows - lagValues;
+    int newCols = originalCols + selectedFeatures_.size() * lagValues;
+    
+    Eigen::MatrixXd newData(newRows, newCols);
+    
+    // Copy non-lagged data (excluding the first 'lagValues' rows)
+    for (int r = 0; r < newRows; ++r) {
+        for (int c = 0; c < originalCols; ++c) {
+            newData(r, c) = numericData_(r + lagValues, c);
+        }
+    }
+    
+    // Calculate and add lag features
+    int lagColOffset = originalCols;
+    for (size_t featureIdx = 0; featureIdx < selectedFeatures_.size(); ++featureIdx) {
+        size_t origColIdx = selectedFeatures_[featureIdx];
+        
+        // Skip if not a valid column
+        if (origColIdx >= static_cast<size_t>(originalCols)) {
+            continue;
+        }
+        
+        // Generate lags for this feature
+        for (int lag = 1; lag <= lagValues; ++lag) {
+            int lagCol = lagColOffset + (featureIdx * lagValues) + (lag - 1);
+            
+            // For each row in the new matrix, get the lagged value
+            for (int r = 0; r < newRows; ++r) {
+                // The lag value comes from 'lag' steps back from the current row + lagValues
+                newData(r, lagCol) = numericData_(r + lagValues - lag, origColIdx);
+            }
+            
+            // Add a new column name for this lag
+            std::string colName = columnNames_[origColIdx] + "_lag" + std::to_string(lag);
+            columnNames_.push_back(colName);
+            numericColumnIndices_.push_back(columnNames_.size() - 1);
+        }
+    }
+    
+    // Update numeric data and adjust raw data accordingly
+    numericData_ = newData;
+    
+    // Adjust raw data to match the new numeric data size
+    // We remove the first 'lagValues' rows
+    if (rawData_.size() > static_cast<size_t>(lagValues)) {
+        std::vector<std::vector<std::string>> newRawData;
+        for (size_t i = lagValues; i < rawData_.size(); ++i) {
+            newRawData.push_back(rawData_[i]);
+        }
+        rawData_ = newRawData;
+    }
+    
+    // If we have dates, also adjust them
+    if (!dates_.empty() && dates_.size() > static_cast<size_t>(lagValues)) {
+        std::vector<Date> newDates;
+        for (size_t i = lagValues; i < dates_.size(); ++i) {
+            newDates.push_back(dates_[i]);
+        }
+        dates_ = newDates;
+    }
+    
+    return true;
+}
+
+bool DataHandler::addSeasonalLags(int seasonality) {
+    if (seasonality <= 0 || numericData_.rows() <= seasonality || selectedTargetIndices_.empty()) {
+        return false;
+    }
+    
+    // Store original dimensions
+    int originalRows = numericData_.rows();
+    int originalCols = numericData_.cols();
+    
+    // Create new matrix with space for seasonal lag features
+    // We lose 'seasonality' rows at the beginning
+    int newRows = originalRows - seasonality;
+    int newCols = originalCols + selectedTargetIndices_.size();
+    
+    Eigen::MatrixXd newData(newRows, newCols);
+    
+    // Copy original data (excluding the first 'seasonality' rows)
+    for (int r = 0; r < newRows; ++r) {
+        for (int c = 0; c < originalCols; ++c) {
+            newData(r, c) = numericData_(r + seasonality, c);
+        }
+    }
+    
+    // Add seasonal lag features for each target variable
+    int seasonalColOffset = originalCols;
+    for (size_t targetIdx = 0; targetIdx < selectedTargetIndices_.size(); ++targetIdx) {
+        size_t origColIdx = selectedTargetIndices_[targetIdx];
+        
+        // Skip if not a valid column
+        if (origColIdx >= static_cast<size_t>(originalCols)) {
+            continue;
+        }
+        
+        // Generate seasonal lag for this target
+        int seasonalCol = seasonalColOffset + targetIdx;
+        
+        // For each row in the new matrix, get the seasonal lagged value
+        for (int r = 0; r < newRows; ++r) {
+            // The seasonal lag value comes from 'seasonality' steps back
+            newData(r, seasonalCol) = numericData_(r, origColIdx);
+        }
+        
+        // Add a new column name for this seasonal lag
+        std::string colName = columnNames_[origColIdx] + "_seasonal" + std::to_string(seasonality);
+        columnNames_.push_back(colName);
+        numericColumnIndices_.push_back(columnNames_.size() - 1);
+    }
+    
+    // Update numeric data and adjust raw data accordingly
+    numericData_ = newData;
+    
+    // Adjust raw data to match the new numeric data size
+    // We remove the first 'seasonality' rows
+    if (rawData_.size() > static_cast<size_t>(seasonality)) {
+        std::vector<std::vector<std::string>> newRawData;
+        for (size_t i = seasonality; i < rawData_.size(); ++i) {
+            newRawData.push_back(rawData_[i]);
+        }
+        rawData_ = newRawData;
+    }
+    
+    // If we have dates, also adjust them
+    if (!dates_.empty() && dates_.size() > static_cast<size_t>(seasonality)) {
+        std::vector<Date> newDates;
+        for (size_t i = seasonality; i < dates_.size(); ++i) {
+            newDates.push_back(dates_[i]);
+        }
+        dates_ = newDates;
+    }
+    
+    return true;
+}
+
+std::map<std::string, int> DataHandler::findBestSeasonalLags(int maxSeasonality) const {
+    std::map<std::string, int> bestSeasonalLags;
+    
+    // Ensure we have data and a target
+    if (numericData_.rows() <= maxSeasonality || selectedTargetIndices_.empty()) {
+        return bestSeasonalLags;
+    }
+    
+    // For each target variable, find the best seasonality
+    for (size_t targetIdx : selectedTargetIndices_) {
+        if (targetIdx >= static_cast<size_t>(numericData_.cols())) {
+            continue;
+        }
+        
+        std::string targetName = columnNames_[targetIdx];
+        Eigen::VectorXd targetColumn = numericData_.col(targetIdx);
+        
+        // Find the best seasonality by highest absolute autocorrelation
+        int bestSeasonality = 0;
+        double bestCorr = 0.0;
+        
+        // Try different seasonality values
+        for (int s = 1; s <= maxSeasonality; ++s) {
+            // We need enough data points for the comparison
+            int validRows = numericData_.rows() - s;
+            if (validRows < 10) {  // Need reasonable sample size
+                continue;
+            }
+            
+            // Create vectors for autocorrelation calculation
+            Eigen::VectorXd currentValues(validRows);
+            Eigen::VectorXd seasonalValues(validRows);
+            
+            // Fill vectors with appropriate values
+            for (int r = 0; r < validRows; ++r) {
+                currentValues(r) = targetColumn(r + s);
+                seasonalValues(r) = targetColumn(r);
+            }
+            
+            // Calculate autocorrelation (Pearson's)
+            double meanX = currentValues.mean();
+            double meanY = seasonalValues.mean();
+            double normX = (currentValues.array() - meanX).matrix().norm();
+            double normY = (seasonalValues.array() - meanY).matrix().norm();
+            
+            if (normX < 1e-10 || normY < 1e-10) {
+                continue;  // Skip if standard deviation is too small
+            }
+            
+            double corr = ((currentValues.array() - meanX) * (seasonalValues.array() - meanY)).sum() / (normX * normY);
+            double absCorr = std::abs(corr);
+            
+            if (absCorr > bestCorr) {
+                bestCorr = absCorr;
+                bestSeasonality = s;
+            }
+        }
+        
+        // Only add to map if we found a significant seasonality
+        if (bestSeasonality > 0 && bestCorr > 0.2) {  // 0.2 correlation threshold is arbitrary, adjust as needed
+            bestSeasonalLags[targetName] = bestSeasonality;
+        }
+    }
+    
+    return bestSeasonalLags;
+}
+
+bool DataHandler::addVariableSeasonalLags(int maxSeasonality, std::map<std::string, int>& bestSeasonalLagsMap) {
+    if (maxSeasonality <= 0 || numericData_.rows() <= maxSeasonality || selectedTargetIndices_.empty()) {
+        std::cerr << "Failed to add variable seasonal lags: invalid parameters" << std::endl;
+        return false;
+    }
+    
+    // First, find best seasonal lag values if map is empty
+    if (bestSeasonalLagsMap.empty()) {
+        std::cerr << "Finding best seasonal lags..." << std::endl;
+        bestSeasonalLagsMap = findBestSeasonalLags(maxSeasonality);
+    }
+    
+    // If we still don't have any best seasonal lags, return false
+    if (bestSeasonalLagsMap.empty()) {
+        std::cerr << "No significant seasonal patterns found" << std::endl;
+        return false;
+    } else {
+        std::cerr << "Found " << bestSeasonalLagsMap.size() << " best seasonal patterns" << std::endl;
+        for (const auto& [target, period] : bestSeasonalLagsMap) {
+            std::cerr << "Target: " << target << ", Period: " << period << std::endl;
+        }
+    }
+    
+    // Store original dimensions
+    int originalRows = numericData_.rows();
+    int originalCols = numericData_.cols();
+    std::cerr << "Original data dimensions: " << originalRows << " x " << originalCols << std::endl;
+    
+    // Determine the maximum seasonality across all targets
+    int maxSeason = 0;
+    for (const auto& [_, season] : bestSeasonalLagsMap) {
+        maxSeason = std::max(maxSeason, season);
+    }
+    std::cerr << "Maximum seasonality found: " << maxSeason << std::endl;
+    
+    // Create new matrix with space for variable-specific seasonal lag features
+    int newRows = originalRows - maxSeason;
+    int newCols = originalCols + bestSeasonalLagsMap.size();  // One column per target with best seasonality
+    std::cerr << "New data dimensions: " << newRows << " x " << newCols << std::endl;
+    
+    Eigen::MatrixXd newData(newRows, newCols);
+    
+    // Copy non-lagged data (excluding the first 'maxSeason' rows)
+    for (int r = 0; r < newRows; ++r) {
+        for (int c = 0; c < originalCols; ++c) {
+            newData(r, c) = numericData_(r + maxSeason, c);
+        }
+    }
+    
+    // Add seasonal lag features with target-specific seasonality
+    int seasonalColOffset = originalCols;
+    int seasonalColIdx = 0;
+    
+    for (size_t targetIdx = 0; targetIdx < selectedTargetIndices_.size(); ++targetIdx) {
+        size_t origColIdx = selectedTargetIndices_[targetIdx];
+        
+        // Skip if not a valid column
+        if (origColIdx >= static_cast<size_t>(originalCols)) {
+            std::cerr << "Skipping target index " << origColIdx << " (out of range)" << std::endl;
+            continue;
+        }
+        
+        std::string targetName = columnNames_[origColIdx];
+        std::cerr << "Processing target: " << targetName << std::endl;
+        
+        // Check if this target has a best seasonality value
+        if (bestSeasonalLagsMap.find(targetName) != bestSeasonalLagsMap.end()) {
+            int season = bestSeasonalLagsMap[targetName];
+            std::cerr << "  Found optimal seasonality: " << season << std::endl;
+            
+            // For each row in the new matrix, get the seasonal lag value
+            for (int r = 0; r < newRows; ++r) {
+                // The seasonal value comes from 'season' steps back from the current row + maxSeason
+                newData(r, seasonalColOffset + seasonalColIdx) = numericData_(r + maxSeason - season, origColIdx);
+            }
+            
+            // Add a new column name for this seasonal lag
+            std::string colName = targetName + "_seasonal" + std::to_string(season);
+            columnNames_.push_back(colName);
+            numericColumnIndices_.push_back(columnNames_.size() - 1);
+            std::cerr << "  Added seasonal feature: " << colName << std::endl;
+            
+            seasonalColIdx++;
+        } else {
+            std::cerr << "  No optimal seasonality found for this target" << std::endl;
+        }
+    }
+    
+    // Update numeric data and adjust raw data accordingly
+    numericData_ = newData;
+    std::cerr << "Updated numeric data matrix" << std::endl;
+    
+    // Adjust raw data to match the new numeric data size
+    if (rawData_.size() > static_cast<size_t>(maxSeason)) {
+        std::vector<std::vector<std::string>> newRawData;
+        for (size_t i = maxSeason; i < rawData_.size(); ++i) {
+            newRawData.push_back(rawData_[i]);
+        }
+        rawData_ = newRawData;
+        std::cerr << "Adjusted raw data, new size: " << rawData_.size() << std::endl;
+    }
+    
+    // If we have dates, also adjust them
+    if (!dates_.empty() && dates_.size() > static_cast<size_t>(maxSeason)) {
+        std::vector<Date> newDates;
+        for (size_t i = maxSeason; i < dates_.size(); ++i) {
+            newDates.push_back(dates_[i]);
+        }
+        dates_ = newDates;
+        std::cerr << "Adjusted dates, new size: " << dates_.size() << std::endl;
+    }
+    
+    // Store the best seasonal lag values
+    bestSeasonalLagValues_ = bestSeasonalLagsMap;
+    std::cerr << "Stored best seasonal lag values" << std::endl;
+    
+    return true;
+}
+
+std::map<std::string, int> DataHandler::findBestLagValues(int maxLag) const {
+    std::map<std::string, int> bestLags;
+    
+    // Ensure we have data and a target
+    if (numericData_.rows() <= maxLag || selectedTargetIndices_.empty() || selectedFeatures_.empty()) {
+        return bestLags;
+    }
+    
+    // Get the target column
+    size_t targetIdx = selectedTargetIndices_[0];
+    Eigen::VectorXd targetColumn = numericData_.col(targetIdx);
+    
+    // Calculate correlations for each feature
+    for (size_t featureIdx : selectedFeatures_) {
+        if (featureIdx >= static_cast<size_t>(numericData_.cols()) || featureIdx == targetIdx) {
+            continue;
+        }
+        
+        std::string featureName = columnNames_[featureIdx];
+        Eigen::VectorXd featureColumn = numericData_.col(featureIdx);
+        
+        // Find the best lag by highest absolute correlation
+        int bestLag = 0;
+        double bestCorr = 0.0;
+        
+        // Try different lag values
+        for (int lag = 1; lag <= maxLag; ++lag) {
+            // We can only compare rows with valid lag values
+            int validRows = numericData_.rows() - lag;
+            if (validRows < 10) {  // Need reasonable sample size
+                continue;
+            }
+            
+            // Create vectors for correlation calculation
+            Eigen::VectorXd laggedFeature(validRows);
+            Eigen::VectorXd targetSubset(validRows);
+            
+            // Fill vectors with appropriate values
+            for (int r = 0; r < validRows; ++r) {
+                laggedFeature(r) = featureColumn(r);
+                targetSubset(r) = targetColumn(r + lag);
+            }
+            
+            // Calculate correlation (Pearson's)
+            double meanX = laggedFeature.mean();
+            double meanY = targetSubset.mean();
+            double normX = (laggedFeature.array() - meanX).matrix().norm();
+            double normY = (targetSubset.array() - meanY).matrix().norm();
+            
+            if (normX < 1e-10 || normY < 1e-10) {
+                continue;  // Skip if standard deviation is too small
+            }
+            
+            double corr = ((laggedFeature.array() - meanX) * (targetSubset.array() - meanY)).sum() / (normX * normY);
+            double absCorr = std::abs(corr);
+            
+            if (absCorr > bestCorr) {
+                bestCorr = absCorr;
+                bestLag = lag;
+            }
+        }
+        
+        // Only add to map if we found a significant lag
+        if (bestLag > 0 && bestCorr > 0.2) {  // 0.2 correlation threshold is arbitrary, adjust as needed
+            bestLags[featureName] = bestLag;
+        }
+    }
+    
+    return bestLags;
+}
+
+bool DataHandler::addVariableLagFeatures(int maxLagValues, std::map<std::string, int>& bestLagsMap) {
+    if (maxLagValues <= 0 || numericData_.rows() <= maxLagValues || selectedFeatures_.empty()) {
+        return false;
+    }
+    
+    // First, find best lag values if map is empty
+    if (bestLagsMap.empty()) {
+        bestLagsMap = findBestLagValues(maxLagValues);
+    }
+    
+    // If we still don't have any best lags, return false
+    if (bestLagsMap.empty()) {
+        return false;
+    }
+    
+    // Store original dimensions
+    int originalRows = numericData_.rows();
+    int originalCols = numericData_.cols();
+    
+    // Determine the maximum lag across all features
+    int maxLag = 0;
+    for (const auto& [_, lag] : bestLagsMap) {
+        maxLag = std::max(maxLag, lag);
+    }
+    
+    // Create new matrix with space for variable-specific lag features
+    int newRows = originalRows - maxLag;
+    int newCols = originalCols + bestLagsMap.size();  // One column per feature with best lag
+    
+    Eigen::MatrixXd newData(newRows, newCols);
+    
+    // Copy non-lagged data (excluding the first 'maxLag' rows)
+    for (int r = 0; r < newRows; ++r) {
+        for (int c = 0; c < originalCols; ++c) {
+            newData(r, c) = numericData_(r + maxLag, c);
+        }
+    }
+    
+    // Add lag features with feature-specific lags
+    int lagColOffset = originalCols;
+    int lagColIdx = 0;
+    
+    for (size_t featureIdx = 0; featureIdx < selectedFeatures_.size(); ++featureIdx) {
+        size_t origColIdx = selectedFeatures_[featureIdx];
+        
+        // Skip if not a valid column
+        if (origColIdx >= static_cast<size_t>(originalCols)) {
+            continue;
+        }
+        
+        std::string featureName = columnNames_[origColIdx];
+        
+        // Check if this feature has a best lag value
+        if (bestLagsMap.find(featureName) != bestLagsMap.end()) {
+            int lag = bestLagsMap[featureName];
+            
+            // For each row in the new matrix, get the lagged value
+            for (int r = 0; r < newRows; ++r) {
+                // The lag value comes from 'lag' steps back from the current row + maxLag
+                newData(r, lagColOffset + lagColIdx) = numericData_(r + maxLag - lag, origColIdx);
+            }
+            
+            // Add a new column name for this lag
+            std::string colName = featureName + "_lag" + std::to_string(lag);
+            columnNames_.push_back(colName);
+            numericColumnIndices_.push_back(columnNames_.size() - 1);
+            
+            lagColIdx++;
+        }
+    }
+    
+    // Update numeric data and adjust raw data accordingly
+    numericData_ = newData;
+    
+    // Adjust raw data to match the new numeric data size
+    if (rawData_.size() > static_cast<size_t>(maxLag)) {
+        std::vector<std::vector<std::string>> newRawData;
+        for (size_t i = maxLag; i < rawData_.size(); ++i) {
+            newRawData.push_back(rawData_[i]);
+        }
+        rawData_ = newRawData;
+    }
+    
+    // If we have dates, also adjust them
+    if (!dates_.empty() && dates_.size() > static_cast<size_t>(maxLag)) {
+        std::vector<Date> newDates;
+        for (size_t i = maxLag; i < dates_.size(); ++i) {
+            newDates.push_back(dates_[i]);
+        }
+        dates_ = newDates;
+    }
+    
+    // Store the best lag values
+    bestLagValues_ = bestLagsMap;
+    
+    return true;
+}
+
+std::vector<std::string> DataHandler::getFeatureNames() const {
+    std::vector<std::string> featureNames = columnNames_;
+    
+    // Remove target variable from the feature list if it exists
+    if (!selectedTargetIndices_.empty()) {
+        for (size_t targetIdx : selectedTargetIndices_) {
+            if (targetIdx < columnNames_.size()) {
+                std::string targetName = columnNames_[targetIdx];
+                featureNames.erase(
+                    std::remove(featureNames.begin(), featureNames.end(), targetName),
+                    featureNames.end()
+                );
+            }
+        }
+    }
+    
+    // Add original feature names first
+    std::vector<std::string> result = featureNames;
+    
+    // Add best seasonal lag features (highest priority)
+    if (!bestSeasonalLagValues_.empty()) {
+        for (const auto& [target, seasonality] : bestSeasonalLagValues_) {
+            // Check if the target exists in the column names
+            bool targetExists = std::find(columnNames_.begin(), columnNames_.end(), target) != columnNames_.end();
+            
+            if (targetExists) {
+                std::string seasonalFeature = target + "_seasonal" + std::to_string(seasonality);
+                
+                // Only add if it's not already in the result
+                if (std::find(result.begin(), result.end(), seasonalFeature) == result.end()) {
+                    result.push_back(seasonalFeature);
+                }
+            }
+        }
+    }
+    
+    // Add variable-specific best lag features (second priority)
+    if (!bestLagValues_.empty()) {
+        for (const auto& [feature, lag] : bestLagValues_) {
+            // Check if the feature exists in the column names
+            bool featureExists = std::find(columnNames_.begin(), columnNames_.end(), feature) != columnNames_.end();
+            
+            if (featureExists) {
+                std::string lagFeature = feature + "_lag" + std::to_string(lag);
+                
+                // Only add if it's not already in the result
+                if (std::find(result.begin(), result.end(), lagFeature) == result.end()) {
+                    result.push_back(lagFeature);
+                }
+            }
+        }
+    }
+    
+    // Add regular lag feature names if lag > 0
+    if (lagValues_ > 0) {
+        // Create a copy of original names to prevent contamination
+        std::vector<std::string> originalNames = featureNames;
+        for (const std::string& name : originalNames) {
+            for (int lag = 1; lag <= lagValues_; ++lag) {
+                std::string lagFeature = name + "_lag" + std::to_string(lag);
+                
+                // Only add if it's not already in the result (not a best lag)
+                if (std::find(result.begin(), result.end(), lagFeature) == result.end()) {
+                    result.push_back(lagFeature);
+                }
+            }
+        }
+    }
+    
+    // Add regular seasonal features if seasonality > 0
+    if (seasonality_ > 0) {
+        // Create a copy of original names to prevent contamination
+        std::vector<std::string> originalNames = featureNames;
+        for (const std::string& name : originalNames) {
+            for (int s = 1; s <= seasonality_; ++s) {
+                std::string seasonalFeature = name + "_seasonal" + std::to_string(s);
+                
+                // Only add if it's not already in the result (not a best seasonal)
+                if (std::find(result.begin(), result.end(), seasonalFeature) == result.end()) {
+                    result.push_back(seasonalFeature);
+                }
+            }
+        }
+    }
+    
+    return result;
+}
+
 } // namespace DataAnalyzer 
