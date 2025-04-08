@@ -602,7 +602,9 @@ void GUI::renderVariableSelection() {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextWrapped("Number of previous time periods to use as features. The system will automatically determine the optimal lag (from 1 to this maximum) for each feature based on correlation with the target variable. For example, if set to 4, the system will check lags 1-4 and select the best one for each feature.");
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::Text("Number of previous time periods to use as features. The system will automatically determine the optimal lag (from 1 to this maximum) for each feature based on correlation with the target variable. For example, if set to 4, the system will check lags 1-4 and select the best one for each feature.");
+        ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
     
@@ -615,7 +617,9 @@ void GUI::renderVariableSelection() {
     }
     if (ImGui::IsItemHovered()) {
         ImGui::BeginTooltip();
-        ImGui::TextWrapped("Maximum seasonality period to consider. The system will analyze the target variable and automatically find the optimal seasonality pattern (from 1 to this maximum) based on autocorrelation. For example, with monthly data, setting to 12 will allow the system to detect yearly patterns.");
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 35.0f);
+        ImGui::Text("Maximum seasonality period to consider. The system will analyze the target variable and automatically find the optimal seasonality pattern (from 1 to this maximum) based on autocorrelation. For example, with monthly data, setting to 12 will allow the system to detect yearly patterns.");
+        ImGui::PopTextWrapPos();
         ImGui::EndTooltip();
     }
     
