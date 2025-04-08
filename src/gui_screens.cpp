@@ -368,7 +368,7 @@ void GUI::renderModelSelection() {
     ImGui::Spacing();
     
     // Model selection with all available models
-    const char* models[] = {"Linear Regression", "Elastic Net", "XGBoost", "Gradient Boosting", "Neural Network"};
+    const char* models[] = {"Linear Regression"};
     static int selectedModel = 0;
     
     ImGui::Combo("Model", &selectedModel, models, IM_ARRAYSIZE(models));
@@ -380,18 +380,6 @@ void GUI::renderModelSelection() {
         case 0: // Linear Regression
             ImGui::TextWrapped("Linear Regression is a standard approach for modeling the relationship between a dependent variable and one or more independent variables. It uses ordinary least squares to find the line that minimizes the sum of squared errors between predictions and actual values.");
             break;
-        case 1: // Elastic Net
-            ImGui::TextWrapped("Elastic Net Regression combines L1 and L2 regularization to balance sparsity and stability. It's effective for feature selection and handling correlated predictors. The α (alpha) parameter controls the mix of L1 and L2 regularization, while λ (lambda) controls the overall regularization strength.");
-            break;
-        case 2: // XGBoost
-            ImGui::TextWrapped("XGBoost (Extreme Gradient Boosting) is an optimized gradient boosting library designed for efficient and scalable training. It builds an ensemble of decision trees sequentially, with each new tree correcting errors made by the previous ones. XGBoost offers high prediction accuracy and speed, with regularization to prevent overfitting.");
-            break;
-        case 3: // Gradient Boosting
-            ImGui::TextWrapped("Gradient Boosting is an ensemble learning technique that builds a series of weak models (typically decision trees) sequentially, where each model tries to correct the errors of the previous ones. It combines these weak models to create a strong predictive model that generally outperforms individual algorithms.");
-            break;
-        case 4: // Neural Network
-            ImGui::TextWrapped("Neural Network is a multi-layer perceptron regressor that uses backpropagation for training. It consists of an input layer, one or more hidden layers, and an output layer, with neurons connected by weights that are adjusted during training to minimize prediction error. Neural networks can capture complex non-linear relationships in the data.");
-            break;
     }
     
     // Display model diagram (simplified)
@@ -402,22 +390,6 @@ void GUI::renderModelSelection() {
             case 0: // Linear Regression
                 ImGui::TextWrapped("Input Features -> [Linear Regression] -> Prediction");
                 ImGui::TextWrapped("Model: y = b0 + b1*x1 + b2*x2 + ... + bn*xn");
-                break;
-            case 1: // Elastic Net
-                ImGui::TextWrapped("Input Features -> [Elastic Net] -> Prediction");
-                ImGui::TextWrapped("Loss = MSE + alpha*lambda*L1 + (1-alpha)*lambda*L2");
-                break;
-            case 2: // XGBoost
-                ImGui::TextWrapped("Input Features -> [Tree 1] -> [Tree 2] -> ... -> [Tree n] -> Sum -> Prediction");
-                ImGui::TextWrapped("Each tree corrects errors from previous trees");
-                break;
-            case 3: // Gradient Boosting
-                ImGui::TextWrapped("Input Features -> [Tree 1] -> [Tree 2] -> ... -> [Tree n] -> Sum -> Prediction");
-                ImGui::TextWrapped("Each tree fits to the residuals of the previous trees");
-                break;
-            case 4: // Neural Network
-                ImGui::TextWrapped("Input Features -> [Hidden Layer(s)] -> [Output Layer] -> Prediction");
-                ImGui::TextWrapped("Neurons connected by weights, trained with backpropagation");
                 break;
         }
         ImGui::Unindent(20.0f);
@@ -1417,148 +1389,6 @@ void GUI::renderHyperparameters() {
                 switch (selectedModelIndex_) {
                     case 0: // Linear Regression
                         model_ = std::make_unique<LinearRegression>();
-                        break;
-                        
-                    case 1: // Elastic Net
-                        if (autoHyperparameters_) {
-                            // Define grid search values for ElasticNet
-                            std::vector<double> alpha_values = {0.0, 0.2, 0.4, 0.6, 0.8, 1.0};
-                            std::vector<double> lambda_values = {0.0001, 0.001, 0.01, 1.0, 10.0, 50.0, 100.0};
-                            
-                            // Create persistent model for grid search
-                            model_ = std::make_unique<ElasticNet>();
-                            // Initialize progress to 0
-                            model_->getStats()["Grid Search Progress"] = 0.0;
-                            
-                            // Run grid search on the persistent model
-                            auto [best_alpha, best_lambda] = 
-                                static_cast<ElasticNet*>(model_.get())->gridSearch(X, y, alpha_values, lambda_values);
-                            
-                            // Create a new model with the best parameters
-                            // This is important to ensure we're starting with a clean model
-                            auto tempModel = std::make_unique<ElasticNet>(best_alpha, best_lambda);
-                            if (tempModel->train(X, y)) {
-                                // Only replace the model if training succeeded
-                                model_ = std::move(tempModel);
-                            }
-                            
-                            // Update UI values to reflect the best parameters
-                            alpha_ = best_alpha;
-                            lambda_ = best_lambda;
-                        } else {
-                            model_ = std::make_unique<ElasticNet>(alpha_, lambda_);
-                        }
-                        break;
-                        
-                    case 2: // XGBoost
-                        if (autoHyperparameters_) {
-                            // Define expanded grid search values for XGBoost
-                            std::vector<int> n_estimators_values = {100, 200, 300};  // Reduced from 5 to 3 values
-                            std::vector<double> learning_rate_values = {0.01, 0.05, 0.075, 0.1, 0.3};  // Adjusted range
-                            std::vector<int> max_depth_values = {3, 4, 5, 6, 7};  // Reduced and centered range
-                            std::vector<double> subsample_values = {0.8, 1.0};  // Most common values
-                            
-                            // Create persistent model for grid search
-                            model_ = std::make_unique<XGBoost>();
-                            // Initialize progress to 0
-                            model_->getStats()["Grid Search Progress"] = 0.0;
-                            
-                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_subsample] = 
-                                static_cast<XGBoost*>(model_.get())->gridSearch(X, y, n_estimators_values, 
-                                                                               learning_rate_values, max_depth_values, subsample_values);
-                            
-                            // Create temporary model with best hyperparameters
-                            auto tempModel = std::make_unique<XGBoost>(best_n_estimators, best_learning_rate, best_max_depth, best_subsample);
-                            if (tempModel->train(X, y)) {
-                                // Only replace the model if training succeeded
-                                model_ = std::move(tempModel);
-                            }
-                            
-                            // Update UI values to reflect the best parameters
-                            n_estimators_ = best_n_estimators;
-                            learning_rate_ = best_learning_rate;
-                            max_depth_ = best_max_depth;
-                            subsample_ = best_subsample;
-                        } else {
-                            model_ = std::make_unique<XGBoost>(n_estimators_, learning_rate_, max_depth_, subsample_);
-                        }
-                        break;
-                        
-                    case 3: // Gradient Boosting
-                        if (autoHyperparameters_) {
-                            // Define grid search values for Gradient Boosting - adjusted for very small dataset
-                            std::vector<int> n_estimators_values = {5, 10, 15, 20};  // Start with fewer trees
-                            std::vector<double> learning_rate_values = {0.3, 0.5, 0.8, 1.0};  // Higher learning rates for faster convergence
-                            std::vector<int> max_depth_values = {2, 3, 4};  // Shallow trees to prevent overfitting
-                            std::vector<int> min_samples_split_values = {2, 3};  // Allow slightly larger minimum splits
-                            
-                            // Create persistent model for grid search
-                            model_ = std::make_unique<GradientBoosting>();
-                            // Initialize progress to 0
-                            model_->getStats()["Grid Search Progress"] = 0.0;
-                            
-                            auto [best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split] = 
-                                static_cast<GradientBoosting*>(model_.get())->gridSearch(X, y, n_estimators_values, 
-                                                                                        learning_rate_values, max_depth_values, min_samples_split_values);
-                            
-                            // Create temporary model with best hyperparameters
-                            auto tempModel = std::make_unique<GradientBoosting>(best_n_estimators, best_learning_rate, best_max_depth, best_min_samples_split);
-                            if (tempModel->train(X, y)) {
-                                // Only replace the model if training succeeded
-                                model_ = std::move(tempModel);
-                            }
-                            
-                            // Update UI values to reflect the best parameters
-                            n_estimators_ = best_n_estimators;
-                            learning_rate_ = best_learning_rate;
-                            max_depth_ = best_max_depth;
-                            min_samples_split_ = best_min_samples_split;
-                        } else {
-                            model_ = std::make_unique<GradientBoosting>(n_estimators_, learning_rate_, max_depth_, min_samples_split_);
-                        }
-                        break;
-                        
-                    case 4: // Neural Network
-                        if (autoHyperparameters_) {
-                            // Define expanded grid search values for Neural Network
-                            std::vector<std::vector<int>> layer_configs = {
-                                {10},           // Simple single layer
-                                {20},           // Larger single layer
-                                {10, 5},        // Two layers, decreasing
-                                {10, 10}        // Two equal layers
-                            };
-                            std::vector<double> learning_rate_values = {0.01, 0.001, 0.0001};  // Common learning rates
-                            std::vector<double> alpha_values = {0.01, 0.001};  // L2 regularization
-                            std::vector<int> max_iterations_values = {200, 500, 1000};  // Reasonable iteration limits
-                            
-                            // Create persistent model for grid search
-                            model_ = std::make_unique<NeuralNetwork>();
-                            // Initialize progress to 0
-                            model_->getStats()["Grid Search Progress"] = 0.0;
-                            
-                            auto [best_layers, best_learning_rate, best_alpha, best_iterations] = 
-                                static_cast<NeuralNetwork*>(model_.get())->gridSearch(X, y, layer_configs, 
-                                                                                     learning_rate_values, alpha_values, max_iterations_values);
-                            
-                            // Create temporary model with best hyperparameters
-                            auto tempModel = std::make_unique<NeuralNetwork>(best_layers, best_learning_rate, best_iterations, best_alpha);
-                            if (tempModel->train(X, y)) {
-                                // Only replace the model if training succeeded
-                                model_ = std::move(tempModel);
-                            }
-                            
-                            // Update UI values to reflect the best parameters
-                            hidden_layers_ = best_layers.size();
-                            if (!best_layers.empty()) {
-                                neurons_per_layer_ = best_layers[0]; // Use first layer size for UI
-                            }
-                            learning_rate_ = best_learning_rate;
-                            max_iterations_ = best_iterations;
-                        } else {
-                            // Create vector for hidden layer sizes
-                            std::vector<int> hidden_layer_sizes(hidden_layers_, neurons_per_layer_);
-                            model_ = std::make_unique<NeuralNetwork>(hidden_layer_sizes, learning_rate_, max_iterations_);
-                        }
                         break;
                 }
                 

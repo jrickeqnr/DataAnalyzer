@@ -23,10 +23,6 @@ set(SOURCES
     src/logger.cpp
     # Model implementations
     src/models/linear_regression.cpp
-    src/models/elasticnet.cpp
-    src/models/xgboost.cpp
-    src/models/gradient_boosting.cpp
-    src/models/neural_network.cpp
 )
 
 # Add header files
