@@ -1,5 +1,6 @@
 #include "../include/data_handler.h"
 #include "../lib/fast-cpp-csv-parser/csv.h"
+#include "../include/logger.h"
 #include <algorithm>
 #include <fstream>
 #include <iomanip>

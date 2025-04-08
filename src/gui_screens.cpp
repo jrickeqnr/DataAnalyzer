@@ -1102,15 +1102,15 @@ void GUI::renderHyperparameters() {
                         // Store the discovered best lag values
                         std::stringstream ss;
                         ss << "Optimal lag values found for " << bestLagValues.size() << " features";
-                        LOG_INFO(ss.str());
+                        LOG_CLASS_INFO("GUI", ss.str());
                         
                         for (const auto& [feature, lag] : bestLagValues) {
                             ss.str("");
                             ss << "Feature: " << feature << ", Optimal lag: " << lag;
-                            LOG_INFO(ss.str());
+                            LOG_CLASS_INFO("GUI",ss.str());
                         }
                     } else {
-                        LOG_WARNING("Unable to determine optimal lag values, falling back to standard method");
+                        LOG_CLASS_WARNING("GUI","Unable to determine optimal lag values, falling back to standard method");
                         
                         // Fall back to standard method if the advanced one fails
                         if (dataHandler_.addLagFeatures(lagValues_)) {
@@ -1259,16 +1259,16 @@ void GUI::renderHyperparameters() {
                     featureNames_ = dataHandler_.getFeatureNames();
                     
                     if (dataModified) {
-                        LOG_INFO("Updated feature names after time series transformations");
+                        LOG_CLASS_INFO("GUI","Updated feature names after time series transformations");
                         std::stringstream ss;
                         ss << "Feature count before adjustment: " << featureNames_.size();
-                        LOG_INFO(ss.str());
+                        LOG_CLASS_INFO("GUI",ss.str());
                     }
                     
                     // Check for date columns and remove them from feature list
                     std::vector<size_t> dateColumnIndices = dataHandler_.getDateColumnIndices();
                     if (!dateColumnIndices.empty()) {
-                        LOG_INFO("Removing date columns from model features");
+                        LOG_CLASS_INFO("GUI","Removing date columns from model features");
                         std::vector<size_t> dateIndices;
                         
                         // Find date columns in our feature names
@@ -1286,7 +1286,7 @@ void GUI::renderHyperparameters() {
                         std::sort(dateIndices.begin(), dateIndices.end(), std::greater<size_t>());
                         for (size_t idx : dateIndices) {
                             if (idx < featureNames_.size()) {
-                                LOG_INFO("Removing date column from features: " + featureNames_[idx]);
+                                LOG_CLASS_INFO("GUI","Removing date column from features: " + featureNames_[idx]);
                                 featureNames_.erase(featureNames_.begin() + idx);
                                 
                                 // Also remove from X matrix if needed
@@ -1314,13 +1314,13 @@ void GUI::renderHyperparameters() {
                     if (dataModified) {
                         std::stringstream ss;
                         ss << "Feature count after date removal: " << featureNames_.size();
-                        LOG_INFO(ss.str());
+                        LOG_CLASS_INFO("GUI",ss.str());
                     }
                     
                     // Ensure seasonal features are included - add explicit check for the existence of seasonal features
                     std::map<std::string, int> bestSeasonalLags = dataHandler_.getBestSeasonalLagValues();
                     if (!bestSeasonalLags.empty()) {
-                        LOG_INFO("Checking for seasonal features in feature names:");
+                        LOG_CLASS_INFO("GUI","Checking for seasonal features in feature names:");
                         for (const auto& [target, period] : bestSeasonalLags) {
                             std::string expectedPattern = target + "_seasonal" + std::to_string(period);
                             
@@ -1334,9 +1334,9 @@ void GUI::renderHyperparameters() {
                             }
                             
                             if (found) {
-                                LOG_INFO("Found seasonal feature: " + expectedPattern);
+                                LOG_CLASS_INFO("GUI","Found seasonal feature: " + expectedPattern);
                             } else {
-                                LOG_WARNING("Missing seasonal feature: " + expectedPattern);
+                                LOG_CLASS_WARNING("GUI","Missing seasonal feature: " + expectedPattern);
                             }
                         }
                     }
@@ -1376,13 +1376,13 @@ void GUI::renderHyperparameters() {
                             newFeatureNames.push_back(featureName);
                         }
                         
-                        LOG_WARNING("Adjusting feature names from " + std::to_string(featureNames_.size()) + 
+                        LOG_CLASS_WARNING("GUI","Adjusting feature names from " + std::to_string(featureNames_.size()) + 
                                   " to match actual input columns (" + std::to_string(X.cols()) + ")");
                         featureNames_ = newFeatureNames;
                     }
                     // Or pad with generic names if needed
                     else if (featureNames_.size() < static_cast<size_t>(X.cols())) {
-                        LOG_WARNING("Adding generic feature names to match input columns (" + 
+                        LOG_CLASS_WARNING("GUI","Adding generic feature names to match input columns (" + 
                                   std::to_string(X.cols()) + ")");
                         size_t originalSize = featureNames_.size();
                         featureNames_.resize(X.cols());
@@ -1395,14 +1395,14 @@ void GUI::renderHyperparameters() {
                     if (dataModified) {
                         std::stringstream ss;
                         ss << "Final feature count: " << featureNames_.size();
-                        LOG_INFO(ss.str());
+                        LOG_CLASS_INFO("GUI",ss.str());
                         
-                        LOG_INFO("Final feature list:");
+                        LOG_CLASS_INFO("GUI","Final feature list:");
                         for (size_t i = 0; i < std::min(featureNames_.size(), size_t(10)); ++i) {
-                            LOG_INFO(std::to_string(i) + ": " + featureNames_[i]);
+                            LOG_CLASS_INFO("GUI",std::to_string(i) + ": " + featureNames_[i]);
                         }
                         if (featureNames_.size() > 10) {
-                            LOG_INFO("... and " + std::to_string(featureNames_.size() - 10) + " more");
+                            LOG_CLASS_INFO("GUI","... and " + std::to_string(featureNames_.size() - 10) + " more");
                         }
                     }
                     
@@ -1574,7 +1574,7 @@ void GUI::renderHyperparameters() {
                     
                     // Ensure coefficient vector size matches feature names
                     if (modelCoefficients_.size() < featureNames_.size()) {
-                        LOG_WARNING("Coefficient vector size (" + std::to_string(modelCoefficients_.size()) + 
+                        LOG_CLASS_WARNING("GUI","Coefficient vector size (" + std::to_string(modelCoefficients_.size()) + 
                                   ") smaller than feature names (" + std::to_string(featureNames_.size()) + ")");
                     }
                     

@@ -1,4 +1,5 @@
 #include "../include/gui.h"
+#include "../include/logger.h"
 #include <imgui.h>
 #include "../lib/imgui/backends/imgui_impl_glfw.h"
 #include "../lib/imgui/backends/imgui_impl_opengl3.h"
@@ -387,10 +388,11 @@ bool GUI::initialize() {
         
         // Try each possible path
         for (const auto& iconPath : possibleIconPaths) {
-            std::cout << "Trying icon path: " << iconPath << std::endl;
+            LOG_INFO("GUI","Trying icon path:" + iconPath);
+
             
             if (fs::exists(iconPath)) {
-                std::cout << "Found icon at: " << iconPath << std::endl;
+                LOG_INFO("GUI","Found icon at: " + iconPath);
                 
                 int channels;
                 icons[0].pixels = stbi_load(iconPath.c_str(), &icons[0].width, &icons[0].height, &channels, 4);
@@ -403,21 +405,21 @@ bool GUI::initialize() {
                     stbi_image_free(icons[0].pixels);
                     
                     iconLoaded = true;
-                    std::cout << "Successfully loaded icon from: " << iconPath << std::endl;
+                    LOG_CLASS_INFO("GUI","Successfully loaded icon from " + iconPath);
                     break;
                 } else {
-                    std::cerr << "Failed to load icon image from " << iconPath << ": " << stbi_failure_reason() << std::endl;
+                    LOG_CLASS_WARNING("GUI","Failed to load icon image from " + iconPath);
                 }
             } else {
-                std::cerr << "Icon file not found at: " << iconPath << std::endl;
+                LOG_CLASS_WARNING("GUI","Icon file not found at: " + iconPath);
             }
         }
         
         if (!iconLoaded) {
-            std::cerr << "Failed to load icon from any location. Icon will not be displayed." << std::endl;
+            LOG_CLASS_WARNING("GUI", "Failed to load icon from any location. Icon will not be diusplayed.");
         }
     } catch (const std::exception& e) {
-        std::cerr << "Error loading window icon: " << e.what() << std::endl;
+        LOG_CLASS_WARNING("GUI","Error loading window icon");
         // Not critical, continue without icon
     }
     
