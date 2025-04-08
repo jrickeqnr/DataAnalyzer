@@ -1205,7 +1205,7 @@ void GUI::renderHyperparameters() {
                             // If we found a good seasonality, add it to the dataset
                             if (!bestTargetSeasonality.empty()) {
                                 if (dataHandler_.addVariableSeasonalLags(seasonality_, bestTargetSeasonality)) {
-                                    LOG_INFO("Added seasonal lag features with auto-detected periods");
+                                    LOG_CLASS_INFO("GUI","Added seasonal lag features with auto-detected periods");
                                     
                                     // Get updated feature set with seasonal lag features
                                     X = dataHandler_.getSelectedFeatures(selectedFeatures_);
@@ -1220,22 +1220,22 @@ void GUI::renderHyperparameters() {
                                     bestSeasonalLags = bestTargetSeasonality;
                                     
                                     // Log the detected seasonal values
-                                    LOG_INFO("Using detected optimal seasonal periods:");
+                                    LOG_CLASS_INFO("GUI","Using detected optimal seasonal periods:");
                                     for (const auto& [target, season] : bestSeasonalLags) {
                                         std::stringstream ss;
                                         ss << "Target: " << target << ", Optimal seasonality: " << season;
-                                        LOG_INFO(ss.str());
+                                        LOG_CLASS_INFO("GUI",ss.str());
                                     }
                                 }
                             } else {
-                                LOG_INFO("No significant seasonality detected for the target");
+                                LOG_CLASS_INFO("GUI","No significant seasonality detected for the target");
                             }
                         }
                     }
                     
                     // If no optimal seasonality was found or applied, fall back to standard method
                     if (bestSeasonalLags.empty()) {
-                        LOG_WARNING("Using standard seasonality method");
+                        LOG_CLASS_WARNING("GUI","Using standard seasonality method");
                         
                         if (dataHandler_.addSeasonalLags(seasonality_)) {
                             // Get updated feature set with seasonal lag features
