@@ -666,12 +666,12 @@ void GUI::renderVariableSelection() {
     bool canProceed = !selectedFeatures_.empty() && !selectedTargetIndices_.empty();
     
     if (canProceed) {
-        if (ImGui::Button("Next: Hyperparameters", ImVec2(200, 0))) {
+        if (ImGui::Button("Next: Model Training", ImVec2(200, 0))) {
             setScreen(Screen::HYPERPARAMETERS);
         }
     } else {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
-        ImGui::Button("Next: Hyperparameters", ImVec2(200, 0));
+        ImGui::Button("Next: Model Training", ImVec2(200, 0));
         ImGui::PopStyleVar();
         
         if (selectedFeatures_.empty()) {
@@ -692,51 +692,18 @@ void GUI::renderHyperparameters() {
         return;
     }
     
-    ImGui::Text("Hyperparameter Configuration");
+    ImGui::Text("Model Training");
     ImGui::Separator();
     
     // Show different hyperparameter options based on selected model
-    const char* modelTypes[] = {"Linear Regression", "Elastic Net", "XGBoost", "Gradient Boosting", "Neural Network"};
-    ImGui::TextWrapped("Configure the hyperparameters for the %s model or use automatic tuning.", modelTypes[selectedModelIndex_]);
+    const char* modelTypes[] = {"Linear Regression"};
+    ImGui::TextWrapped("Train the model");
     ImGui::Spacing();
-    
-    // Hyperparameter configuration
-    ImGui::Checkbox("Auto-tune Hyperparameters", &autoHyperparameters_);
     
     // Status is now handled in the status box below
 
-    // Show best parameters if available during auto-tuning
-    if (autoHyperparameters_ && model_) {
-        auto stats = model_->getStats();
-        if (stats.find("Best RMSE") != stats.end()) {
-            ImGui::Separator();
-            ImGui::Text("Best Parameters Found:");
-            ImGui::Indent(20.0f);
-            ImGui::Text("RMSE: %.4f", stats["Best RMSE"]);
-            
-            if (stats.find("Best Learning Rate") != stats.end()) {
-                ImGui::Text("Learning Rate: %.4f", stats["Best Learning Rate"]);
-            }
-            if (stats.find("Best N Estimators") != stats.end()) {
-                ImGui::Text("N Estimators: %d", static_cast<int>(stats["Best N Estimators"]));
-            }
-            if (stats.find("Best Max Depth") != stats.end()) {
-                ImGui::Text("Max Depth: %d", static_cast<int>(stats["Best Max Depth"]));
-            }
-            if (stats.find("Best Alpha") != stats.end()) {
-                ImGui::Text("Alpha: %.4f", stats["Best Alpha"]);
-            }
-            if (stats.find("Best Lambda") != stats.end()) {
-                ImGui::Text("Lambda: %.4f", stats["Best Lambda"]);
-            }
-            if (stats.find("Best Min Samples Split") != stats.end()) {
-                ImGui::Text("Min Samples Split: %d", static_cast<int>(stats["Best Min Samples Split"]));
-            }
-            ImGui::Unindent(20.0f);
-        }
-    }
     // Show current metrics if not auto-tuning
-    else if (model_) {
+    if (model_) {
         auto stats = model_->getStats();
         if (stats.find("Current RMSE") != stats.end()) {
             ImGui::Text("Current RMSE: %.4f", stats["Current RMSE"]);
@@ -752,86 +719,6 @@ void GUI::renderHyperparameters() {
             case 0: // Linear Regression
                 // Linear Regression doesn't have hyperparameters
                 ImGui::TextWrapped("Linear Regression does not have tunable hyperparameters.");
-                break;
-                
-            case 1: // Elastic Net
-                {
-                    float alpha = static_cast<float>(alpha_);
-                    float lambda = static_cast<float>(lambda_);
-                    
-                    if (ImGui::SliderFloat("Alpha (L1/L2 Mix)", &alpha, 0.0f, 1.0f, "%.2f")) {
-                        alpha_ = static_cast<double>(alpha);
-                    }
-                    if (ImGui::SliderFloat("Lambda (Regularization)", &lambda, 0.0f, 10.0f, "%.2f")) {
-                        lambda_ = static_cast<double>(lambda);
-                    }
-                }
-                break;
-                
-            case 2: // XGBoost
-                {
-                    int n_estimators = static_cast<int>(n_estimators_);
-                    float learning_rate = static_cast<float>(learning_rate_);
-                    int max_depth = static_cast<int>(max_depth_);
-                    float subsample = static_cast<float>(subsample_);
-                    
-                    if (ImGui::SliderInt("Number of Estimators", &n_estimators, 10, 500)) {
-                        n_estimators_ = n_estimators;
-                    }
-                    if (ImGui::SliderFloat("Learning Rate", &learning_rate, 0.01f, 1.0f, "%.2f")) {
-                        learning_rate_ = static_cast<double>(learning_rate);
-                    }
-                    if (ImGui::SliderInt("Max Depth", &max_depth, 1, 10)) {
-                        max_depth_ = max_depth;
-                    }
-                    if (ImGui::SliderFloat("Subsample", &subsample, 0.1f, 1.0f, "%.2f")) {
-                        subsample_ = static_cast<double>(subsample);
-                    }
-                }
-                break;
-                
-            case 3: // Gradient Boosting
-                {
-                    int n_estimators = static_cast<int>(n_estimators_);
-                    float learning_rate = static_cast<float>(learning_rate_);
-                    int max_depth = static_cast<int>(max_depth_);
-                    int min_samples_split = static_cast<int>(min_samples_split_);
-                    
-                    if (ImGui::SliderInt("Number of Estimators", &n_estimators, 5, 500)) {
-                        n_estimators_ = n_estimators;
-                    }
-                    if (ImGui::SliderFloat("Learning Rate", &learning_rate, 0.1, 0.8, "%.2f")) {
-                        learning_rate_ = static_cast<double>(learning_rate);
-                    }
-                    if (ImGui::SliderInt("Max Depth", &max_depth, 2, 5)) {
-                        max_depth_ = max_depth;
-                    }
-                    if (ImGui::SliderInt("Min Samples Split", &min_samples_split, 2, 5)) {
-                        min_samples_split_ = static_cast<double>(min_samples_split);
-                    }
-                }
-                break;
-                
-            case 4: // Neural Network
-                {
-                    int hidden_layers = static_cast<int>(hidden_layers_);
-                    int neurons_per_layer = static_cast<int>(neurons_per_layer_);
-                    float learning_rate = static_cast<float>(learning_rate_);
-                    int max_iterations = static_cast<int>(max_iterations_);
-                    
-                    if (ImGui::SliderInt("Hidden Layers", &hidden_layers, 1, 5)) {
-                        hidden_layers_ = hidden_layers;
-                    }
-                    if (ImGui::SliderInt("Neurons per Layer", &neurons_per_layer, 5, 100)) {
-                        neurons_per_layer_ = neurons_per_layer;
-                    }
-                    if (ImGui::SliderFloat("Learning Rate", &learning_rate, 0.001f, 0.5f, "%.3f")) {
-                        learning_rate_ = static_cast<double>(learning_rate);
-                    }
-                    if (ImGui::SliderInt("Max Iterations", &max_iterations, 100, 10000)) {
-                        max_iterations_ = max_iterations;
-                    }
-                }
                 break;
         }
     }
@@ -1464,58 +1351,11 @@ void GUI::renderHyperparameters() {
                 ImGui::TextWrapped("Average squared prediction error");
             }
 
-            // Tree-based model statistics (XGBoost and Gradient Boosting)
-            if (selectedModelIndex_ == 2 || selectedModelIndex_ == 3) {
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Text("Tree Statistics:");
-                
-                // Number of trees
-                if (modelStats_.find("Number of Trees") != modelStats_.end()) {
-                    ImGui::Text("Number of Trees: %.0f", modelStats_["Number of Trees"]);
-                }
-                
-                // Average tree depth
-                if (modelStats_.find("Average Tree Depth") != modelStats_.end()) {
-                    ImGui::Text("Average Tree Depth: %.2f", modelStats_["Average Tree Depth"]);
-                }
-                
-                // Average leaf nodes
-                if (modelStats_.find("Average Leaf Nodes") != modelStats_.end()) {
-                    ImGui::Text("Average Leaf Nodes per Tree: %.2f", modelStats_["Average Leaf Nodes"]);
-                }
-                
-                // Training loss
-                if (modelStats_.find("Training Loss") != modelStats_.end()) {
-                    ImGui::Text("Training Loss: %.4f", modelStats_["Training Loss"]);
-                }
-                
-                // Learning rate
-                if (modelStats_.find("Learning Rate") != modelStats_.end()) {
-                    ImGui::Text("Learning Rate: %.4f", modelStats_["Learning Rate"]);
-                }
-                
-                // Max tree depth
-                if (modelStats_.find("Max Tree Depth") != modelStats_.end()) {
-                    ImGui::Text("Maximum Tree Depth: %.0f", modelStats_["Max Tree Depth"]);
-                }
-                
-                // XGBoost specific
-                if (selectedModelIndex_ == 2 && modelStats_.find("Subsample Ratio") != modelStats_.end()) {
-                    ImGui::Text("Subsample Ratio: %.2f", modelStats_["Subsample Ratio"]);
-                }
-                
-                // Gradient Boosting specific
-                if (selectedModelIndex_ == 3 && modelStats_.find("Min Samples Split") != modelStats_.end()) {
-                    ImGui::Text("Minimum Samples Split: %.0f", modelStats_["Min Samples Split"]);
-                }
-            }
-
             ImGui::Unindent(20.0f);
         }
 
         // Model Coefficients Section (for applicable models)
-        if (selectedModelIndex_ == 0 || selectedModelIndex_ == 1) { // Linear Regression or Elastic Net
+        if (selectedModelIndex_ == 0) { // Linear Regression
             if (ImGui::CollapsingHeader("Model Coefficients", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::Indent(20.0f);
 
@@ -1769,79 +1609,6 @@ void GUI::renderHyperparameters() {
             }
         }
 
-        // Feature Importance Section (for tree-based models)
-        if (selectedModelIndex_ == 2 || selectedModelIndex_ == 3) { // XGBoost or Gradient Boosting
-            if (ImGui::CollapsingHeader("Feature Importance", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::Indent(20.0f);
-                
-                if (ImGui::BeginTable("ImportanceTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("Feature");
-                    ImGui::TableSetupColumn("Importance");
-                    ImGui::TableHeadersRow();
-
-                    // Get feature importance scores
-                    for (size_t i = 0; i < featureNames_.size(); ++i) {
-                        std::string key = "Feature " + std::to_string(i) + " Importance";
-                        if (modelStats_.find(key) != modelStats_.end()) {
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::Text("%s", featureNames_[i].c_str());
-                            ImGui::TableSetColumnIndex(1);
-                            ImGui::Text("%.4f", modelStats_[key]);
-                        }
-                    }
-                    ImGui::EndTable();
-                }
-
-                ImGui::Unindent(20.0f);
-            }
-        }
-
-        // Neural Network Architecture (if applicable)
-        if (selectedModelIndex_ == 4) { // Neural Network
-            if (ImGui::CollapsingHeader("Network Architecture", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::Indent(20.0f);
-                
-                // Display layer information
-                if (modelStats_.find("Layers") != modelStats_.end()) {
-                    ImGui::Text("Number of Layers: %.0f", modelStats_["Layers"]);
-                }
-                if (modelStats_.find("Parameters") != modelStats_.end()) {
-                    ImGui::Text("Total Parameters: %.0f", modelStats_["Parameters"]);
-                }
-                if (modelStats_.find("Training Loss") != modelStats_.end()) {
-                    ImGui::Text("Final Training Loss: %.4f", modelStats_["Training Loss"]);
-                }
-                
-                ImGui::Unindent(20.0f);
-            }
-        }
-
-        // Show hyperparameter information if auto-tuning was used
-        if (autoHyperparameters_) {
-            if (ImGui::CollapsingHeader("Optimal Hyperparameters", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::Indent(20.0f);
-                ImGui::TextColored(ImVec4(0.0f, 0.7f, 1.0f, 1.0f), "Optimal hyperparameters found via grid search:");
-                
-                if (ImGui::BeginTable("HyperparamsTable", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                    ImGui::TableSetupColumn("Parameter");
-                    ImGui::TableSetupColumn("Value");
-                    ImGui::TableHeadersRow();
-
-                    for (const auto& [name, value] : modelHyperparams_) {
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("%s", name.c_str());
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%.4f", value);
-                    }
-                    ImGui::EndTable();
-                }
-                
-                ImGui::Unindent(20.0f);
-            }
-        }
-
         ImGui::EndChild();
     }
     
@@ -2003,7 +1770,7 @@ void GUI::renderPlotting() {
 
     // Navigation buttons
     ImGui::Separator();
-    if (ImGui::Button("Back to Hyperparameters")) {
+    if (ImGui::Button("Back to Model Training")) {
         setScreen(Screen::HYPERPARAMETERS);
     }
     ImGui::SameLine();

@@ -698,7 +698,7 @@ void GUI::renderMainMenu() {
                 setScreen(Screen::VARIABLE_SELECTION);
             }
             
-            if (ImGui::MenuItem("Hyperparameters", nullptr, currentScreen_ == Screen::HYPERPARAMETERS,
+            if (ImGui::MenuItem("Model Training", nullptr, currentScreen_ == Screen::HYPERPARAMETERS,
                                 !selectedFilePath_.empty() && !selectedFeatures_.empty())) {
                 setScreen(Screen::HYPERPARAMETERS);
             }
