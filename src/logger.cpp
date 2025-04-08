@@ -9,6 +9,7 @@ namespace DataAnalyzer {
 Logger::Logger() 
     : currentLevel_(LogLevel::INFO)
     , consoleOutput_(true) {
+    setLogFile("app.log");
 }
 
 Logger::~Logger() {
@@ -31,15 +32,21 @@ void Logger::setLogFile(const std::string& filepath) {
     
     // Create directories if they don't exist
     std::filesystem::path path(filepath);
+    
+    // If the path is relative, make it relative to the current working directory
+    if (path.is_relative()) {
+        path = std::filesystem::current_path() / path;
+    }
+    
     if (auto dir = path.parent_path(); !dir.empty()) {
         std::filesystem::create_directories(dir);
     }
     
-    logFile_.open(filepath, std::ios::app);
-    logFilePath_ = filepath;
+    logFile_.open(path.string(), std::ios::app);
+    logFilePath_ = path.string();
     
     if (!logFile_.is_open()) {
-        std::cerr << "Failed to open log file: " << filepath << std::endl;
+        std::cerr << "Failed to open log file: " << path.string() << std::endl;
     }
 }
 
@@ -150,4 +157,4 @@ std::string Logger::levelToString(LogLevel level) const {
     }
 }
 
-} // namespace DataAnalyzer 
+} // namespace DataAnalyzer
