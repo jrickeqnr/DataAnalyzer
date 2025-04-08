@@ -25,6 +25,6 @@
     "cmake.buildBeforeRun": true,
     "cmake.generator": "Ninja",
     "cmake.configureSettings": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_BUILD_TYPE": "Debug"
     }
 }
