@@ -1,6 +1,7 @@
 {
     "files.associations": {
-        "thread": "cpp"
+        "thread": "cpp",
+        "memory": "cpp"
     },
     "cmake.configureOnOpen": true,
     "cmake.buildDirectory": "${workspaceFolder}/build",

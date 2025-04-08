@@ -232,63 +232,6 @@ std::string ScatterPlot::getType() const {
     return "ScatterPlot";
 }
 
-// FeatureImportancePlot Implementation
-FeatureImportancePlot::FeatureImportancePlot(const std::string& title, const std::string& xLabel, const std::string& yLabel)
-    : Plot(title), xLabel_(xLabel), yLabel_(yLabel), hasData_(false) {
-}
-
-bool FeatureImportancePlot::setData(const std::vector<std::string>& featureNames,
-                                  const Eigen::VectorXd& importance) {
-    if (static_cast<Eigen::Index>(featureNames.size()) != importance.size()) {
-        return false;
-    }
-    
-    featureNames_ = featureNames;
-    importanceValues_ = importance;
-    hasData_ = true;
-    
-    return true;
-}
-
-void FeatureImportancePlot::render() {
-    if (!hasData_ || featureNames_.empty()) {
-        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "No data available to plot");
-        return;
-    }
-    
-    // Convert feature names to char* array for ImPlot
-    std::vector<const char*> labels(featureNames_.size());
-    for (size_t i = 0; i < featureNames_.size(); ++i) {
-        labels[i] = featureNames_[i].c_str();
-    }
-    
-    // Convert Eigen vector to std::vector for ImPlot
-    std::vector<double> importance(importanceValues_.data(), importanceValues_.data() + importanceValues_.size());
-    
-    // Create x-axis values (0, 1, 2, ...)
-    std::vector<double> xs(importance.size());
-    std::iota(xs.begin(), xs.end(), 0.0);
-    
-    // Set up plot parameters
-    if (ImPlot::BeginPlot(title_.c_str(), ImVec2(-1, -1), ImPlotFlags_NoMouseText)) {
-        // Set axis labels
-        ImPlot::SetupAxes(xLabel_.c_str(), yLabel_.c_str());
-        
-        // Set x-axis tick labels to be feature names
-        ImPlot::SetupAxisTicks(ImAxis_X1, xs.data(), xs.size(), labels.data());
-        
-        // Plot bars
-        ImPlot::SetNextFillStyle(ImVec4(0.0f, 0.7f, 0.0f, 0.5f));
-        ImPlot::PlotBars("Feature Importance", xs.data(), importance.data(), importance.size(), 0.67);
-        
-        ImPlot::EndPlot();
-    }
-}
-
-std::string FeatureImportancePlot::getType() const {
-    return "FeatureImportancePlot";
-}
-
 // PlotManager Implementation
 void PlotManager::addPlot(std::shared_ptr<Plot> plot) {
     plots_.push_back(plot);
@@ -599,4 +542,4 @@ std::string CoefficientStatsPlot::getType() const {
     return "CoefficientStatsPlot";
 }
 
-} // namespace DataAnalyzer 
+} // namespace DataAnalyzer
