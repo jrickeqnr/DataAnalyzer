@@ -2,6 +2,12 @@
 
 A portable C++ data analysis program designed to replace existing data analysis workflows in Equinor. This application provides a complete GUI workflow for data loading, outlier detection, model training, and result visualization.
 
+
+## Branches
+
+- **main**: Contains functionality for models other than Linear Regression and gridsearch capabilities, but without seasonality features
+- **streamlined**: Contains a streamlined version of the program with support only for Linear Regression
+
 ## Features
 
 - **Portable**: No external dependencies like Python or Matplotlib required.
